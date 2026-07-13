@@ -1,0 +1,95 @@
+.env
+public-url.txt
+*.log
+ci-logs/
+.DS_Store
+tailscale-state/
+**/tailscale-state/
+
+# ── Node.js ──────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build output (Node)
+dist/
+build/
+.next/
+.nuxt/
+out/
+.output/
+.cache/
+.parcel-cache/
+.turbo/
+
+# Runtime / temp
+logs/
+tmp/
+temp/
+.tmp/
+
+# ── .NET / C# ────────────────────────────────────────
+bin/
+obj/
+publish/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+project.lock.json
+project.assets.json
+*.nuget.props
+*.nuget.targets
+
+# Visual Studio / Rider
+.vs/
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+.idea/
+
+# Test results
+TestResults/
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# Publish profiles
+**/Properties/PublishProfiles/*.pubxml
+!**/Properties/PublishProfiles/*.pubxml.user
+
+# ── Shared ────────────────────────────────────────────
+# Env & secrets
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+appsettings.Development.json
+appsettings.Local.json
+secrets.json
+
+# Editor
+.vscode/
+*.swp
+*~
+
+# OS
+Thumbs.db
+coverage/
+.nyc_output/
+
+# ── Git O-Alias helpers ───────────────────────
+.git-o-config
+.opushforce.message

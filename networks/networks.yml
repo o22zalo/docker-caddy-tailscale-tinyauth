@@ -1,0 +1,34 @@
+# =============================================================================
+# networks/networks.yml — mạng Docker dùng chung
+# =============================================================================
+#
+# Mục đích trong dự án:
+#   Định nghĩa bridge network `proxy` để mọi service (caddy, tinyauth, whoami,
+#   cloudflared, tailscale) resolve nhau theo tên container/service
+#   (ví dụ cloudflared → http://caddy:80, Caddy → tinyauth:3000).
+#
+# Tài liệu:
+#   - Networks: https://docs.docker.com/compose/how-tos/networking/
+#   - Compose networks: https://docs.docker.com/reference/compose-file/networks/
+#
+# Cách dùng:
+#   Được include bởi docker-compose.yml (root). Không chạy file này một mình
+#   trừ khi gộp multi-file thủ công.
+#
+# Ví dụ (đã đủ trong file):
+#   networks:
+#     proxy:
+#       name: proxy
+#       driver: bridge
+#
+# Service khác chỉ cần:
+#   services:
+#     myapp:
+#       networks:
+#         - proxy
+# =============================================================================
+
+networks:
+  proxy:
+    name: proxy
+    driver: bridge

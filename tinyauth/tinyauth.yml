@@ -1,0 +1,93 @@
+# =============================================================================
+# tinyauth/tinyauth.yml — forward-auth / trang đăng nhập
+# =============================================================================
+#
+# Env — thứ tự ưu tiên:
+#   1) env_file ../.env  2) env_file ./.env  3) environment (YAML thắng)
+#
+# CẢNH BÁO Tinyauth v5:
+#   Mọi KEY bắt đầu TINYAUTH_* trong container đều bị parse. KEY lạ → refuse start.
+#   Biến chỉ dùng cho Caddy label KHÔNG được prefix TINYAUTH_ (dùng CADDY_TINYAUTH_HOST).
+#
+# Catalog: tinyauth/.env.example
+# Profiles: tinyauth | core | full
+# =============================================================================
+
+services:
+  tinyauth:
+    image: ghcr.io/steveiliop56/tinyauth:v5
+    container_name: tinyauth
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: false
+      - path: .env
+        required: false
+    environment:
+      # --- General / auth (từ .env; default stack nếu thiếu) ---
+      TINYAUTH_APPURL: ${TINYAUTH_APPURL:-http://auth.${DOMAIN:-localhost}}
+      TINYAUTH_AUTH_USERS: ${TINYAUTH_AUTH_USERS:?Set TINYAUTH_AUTH_USERS in .env}
+      TINYAUTH_AUTH_USERSFILE: ${TINYAUTH_AUTH_USERSFILE:-}
+      TINYAUTH_AUTH_SECURECOOKIE: ${TINYAUTH_AUTH_SECURECOOKIE:-false}
+      TINYAUTH_AUTH_SESSIONEXPIRY: ${TINYAUTH_AUTH_SESSIONEXPIRY:-}
+      TINYAUTH_AUTH_SESSIONMAXLIFETIME: ${TINYAUTH_AUTH_SESSIONMAXLIFETIME:-}
+      TINYAUTH_AUTH_LOGINTIMEOUT: ${TINYAUTH_AUTH_LOGINTIMEOUT:-}
+      TINYAUTH_AUTH_LOGINMAXRETRIES: ${TINYAUTH_AUTH_LOGINMAXRETRIES:-}
+      TINYAUTH_AUTH_IP_ALLOW: ${TINYAUTH_AUTH_IP_ALLOW:-}
+      TINYAUTH_AUTH_IP_BLOCK: ${TINYAUTH_AUTH_IP_BLOCK:-}
+      TINYAUTH_AUTH_TRUSTEDPROXIES: ${TINYAUTH_AUTH_TRUSTEDPROXIES:-}
+      # --- Server ---
+      TINYAUTH_SERVER_PORT: ${TINYAUTH_SERVER_PORT:-}
+      TINYAUTH_SERVER_ADDRESS: ${TINYAUTH_SERVER_ADDRESS:-}
+      TINYAUTH_SERVER_SOCKETPATH: ${TINYAUTH_SERVER_SOCKETPATH:-}
+      # --- Database (path trong volume — YAML ưu tiên default stack) ---
+      TINYAUTH_DATABASE_PATH: ${TINYAUTH_DATABASE_PATH:-/data/tinyauth.db}
+      # --- Analytics / resources / UI ---
+      TINYAUTH_ANALYTICS_ENABLED: ${TINYAUTH_ANALYTICS_ENABLED:-false}
+      TINYAUTH_RESOURCES_ENABLED: ${TINYAUTH_RESOURCES_ENABLED:-}
+      TINYAUTH_RESOURCES_PATH: ${TINYAUTH_RESOURCES_PATH:-}
+      TINYAUTH_UI_TITLE: ${TINYAUTH_UI_TITLE:-}
+      TINYAUTH_UI_FORGOTPASSWORDMESSAGE: ${TINYAUTH_UI_FORGOTPASSWORDMESSAGE:-}
+      TINYAUTH_UI_BACKGROUNDIMAGE: ${TINYAUTH_UI_BACKGROUNDIMAGE:-}
+      TINYAUTH_UI_WARNINGSENABLED: ${TINYAUTH_UI_WARNINGSENABLED:-}
+      # --- Logging ---
+      TINYAUTH_LOG_LEVEL: ${TINYAUTH_LOG_LEVEL:-info}
+      TINYAUTH_LOG_JSON: ${TINYAUTH_LOG_JSON:-}
+      TINYAUTH_LOG_STREAMS_HTTP_ENABLED: ${TINYAUTH_LOG_STREAMS_HTTP_ENABLED:-}
+      TINYAUTH_LOG_STREAMS_HTTP_LEVEL: ${TINYAUTH_LOG_STREAMS_HTTP_LEVEL:-}
+      TINYAUTH_LOG_STREAMS_APP_ENABLED: ${TINYAUTH_LOG_STREAMS_APP_ENABLED:-}
+      TINYAUTH_LOG_STREAMS_APP_LEVEL: ${TINYAUTH_LOG_STREAMS_APP_LEVEL:-}
+      TINYAUTH_LOG_STREAMS_AUDIT_ENABLED: ${TINYAUTH_LOG_STREAMS_AUDIT_ENABLED:-}
+      TINYAUTH_LOG_STREAMS_AUDIT_LEVEL: ${TINYAUTH_LOG_STREAMS_AUDIT_LEVEL:-}
+      # --- OAuth (optional; set in .env when used) ---
+      TINYAUTH_OAUTH_WHITELIST: ${TINYAUTH_OAUTH_WHITELIST:-}
+      TINYAUTH_OAUTH_AUTOREDIRECT: ${TINYAUTH_OAUTH_AUTOREDIRECT:-}
+      TINYAUTH_OAUTH_PROVIDERS_GOOGLE_CLIENTID: ${TINYAUTH_OAUTH_PROVIDERS_GOOGLE_CLIENTID:-}
+      TINYAUTH_OAUTH_PROVIDERS_GOOGLE_CLIENTSECRET: ${TINYAUTH_OAUTH_PROVIDERS_GOOGLE_CLIENTSECRET:-}
+      TINYAUTH_OAUTH_PROVIDERS_GITHUB_CLIENTID: ${TINYAUTH_OAUTH_PROVIDERS_GITHUB_CLIENTID:-}
+      TINYAUTH_OAUTH_PROVIDERS_GITHUB_CLIENTSECRET: ${TINYAUTH_OAUTH_PROVIDERS_GITHUB_CLIENTSECRET:-}
+      # --- LDAP (optional) ---
+      TINYAUTH_LDAP_ADDRESS: ${TINYAUTH_LDAP_ADDRESS:-}
+      TINYAUTH_LDAP_BINDDN: ${TINYAUTH_LDAP_BINDDN:-}
+      TINYAUTH_LDAP_BINDPASSWORD: ${TINYAUTH_LDAP_BINDPASSWORD:-}
+      TINYAUTH_LDAP_BASEDN: ${TINYAUTH_LDAP_BASEDN:-}
+      TINYAUTH_LDAP_INSECURE: ${TINYAUTH_LDAP_INSECURE:-}
+      TINYAUTH_LDAP_SEARCHFILTER: ${TINYAUTH_LDAP_SEARCHFILTER:-}
+      TINYAUTH_LDAP_AUTHCERT: ${TINYAUTH_LDAP_AUTHCERT:-}
+      TINYAUTH_LDAP_AUTHKEY: ${TINYAUTH_LDAP_AUTHKEY:-}
+      TINYAUTH_LDAP_GROUPCACHETTL: ${TINYAUTH_LDAP_GROUPCACHETTL:-}
+    volumes:
+      - tinyauth-data:/data
+    networks:
+      - proxy
+    labels:
+      # CADDY_TINYAUTH_HOST = site Caddy (không phải env process Tinyauth)
+      caddy: ${CADDY_TINYAUTH_HOST:-${TINYAUTH_HOST:-http://auth.${DOMAIN:-localhost}}}
+      caddy.reverse_proxy: "{{upstreams 3000}}"
+    profiles:
+      - tinyauth
+      - core
+      - full
+
+volumes:
+  tinyauth-data:

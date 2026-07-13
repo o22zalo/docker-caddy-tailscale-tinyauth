@@ -1,0 +1,67 @@
+# =============================================================================
+# cloudflare/cloudflare.yml — Cloudflare Tunnel (lối vào Internet)
+# =============================================================================
+#
+# Mục đích trong dự án:
+#   Chạy cloudflared để expose stack ra ngoài mà không mở port firewall.
+#   Prod: named tunnel với TUNNEL_TOKEN; dashboard trỏ Public Hostname
+#   về http://caddy:80. CI: docker-compose.ci.yml dùng quick tunnel.
+#
+# Env — thứ tự ưu tiên (Compose):
+#   1) env_file: ../.env  (root — mọi KEY trong .env vào container)
+#   2) env_file: .env     (cloudflare/.env — tuỳ chọn, ghi đè root)
+#   3) environment:       (cấu hình riêng trong YAML — ưu tiên cao nhất)
+#
+#   Ví dụ: TUNNEL_TRANSPORT_PROTOCOL=quic trong root .env → vào container
+#   qua env_file; không cần khai báo lại từng KEY. Chỉ khai báo trong
+#   `environment` khi muốn ép giá trị / default stack.
+#
+# Catalog: cloudflare/.env.example
+# Docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/configure-tunnels/tunnel-run-parameters/
+#
+# Profiles: cloudflare | core | full
+# =============================================================================
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    # Named tunnel (production). CI override: docker-compose.ci.yml
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+    # 1–2: nạp toàn bộ .env vào container
+    env_file:
+      - path: ../.env
+        required: false
+      - path: .env
+        required: false
+    # 3: cấu hình riêng / default stack (ghi đè env_file nếu trùng KEY)
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+      # Optional — lấy từ .env nếu set; liệt kê để dễ thấy + default an toàn
+      TUNNEL_LOGLEVEL: ${TUNNEL_LOGLEVEL:-info}
+      TUNNEL_TRANSPORT_PROTOCOL: ${TUNNEL_TRANSPORT_PROTOCOL:-auto}
+      TUNNEL_EDGE_IP_VERSION: ${TUNNEL_EDGE_IP_VERSION:-4}
+      TUNNEL_EDGE_BIND_ADDRESS: ${TUNNEL_EDGE_BIND_ADDRESS:-}
+      TUNNEL_REGION: ${TUNNEL_REGION:-}
+      TUNNEL_RETRIES: ${TUNNEL_RETRIES:-}
+      TUNNEL_GRACE_PERIOD: ${TUNNEL_GRACE_PERIOD:-}
+      TUNNEL_METRICS: ${TUNNEL_METRICS:-}
+      TUNNEL_TAG: ${TUNNEL_TAG:-}
+      TUNNEL_LOGFILE: ${TUNNEL_LOGFILE:-}
+      TUNNEL_PIDFILE: ${TUNNEL_PIDFILE:-}
+      TUNNEL_DNS_RESOLVER_ADDRS: ${TUNNEL_DNS_RESOLVER_ADDRS:-}
+      TUNNEL_TOKEN_FILE: ${TUNNEL_TOKEN_FILE:-}
+      TUNNEL_ORIGIN_CERT: ${TUNNEL_ORIGIN_CERT:-}
+      NO_AUTOUPDATE: ${NO_AUTOUPDATE:-true}
+    networks:
+      - proxy
+    depends_on:
+      - caddy
+    profiles:
+      - cloudflare
+      - core
+      - full

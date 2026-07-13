@@ -1,0 +1,204 @@
+name: stack-test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: stack-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Compose up + external access
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Write .env from GitHub secret ENV_FILE
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: |
+          set -euo pipefail
+          if [ -n "${ENV_FILE:-}" ]; then
+            printf '%s\n' "$ENV_FILE" > .env
+            echo "Wrote .env from secrets.ENV_FILE"
+            # Detect whether a named tunnel token is present
+            if grep -qE '^TUNNEL_TOKEN=.+' .env; then
+              echo "MODE=named" >> "$GITHUB_ENV"
+              echo "Named Cloudflare tunnel mode (TUNNEL_TOKEN set)"
+            else
+              echo "MODE=quick" >> "$GITHUB_ENV"
+              echo "Quick tunnel mode (no TUNNEL_TOKEN in ENV_FILE)"
+            fi
+          else
+            cp .env.ci .env
+            echo "MODE=quick" >> "$GITHUB_ENV"
+            echo "secrets.ENV_FILE not set — using .env.ci + quick tunnel"
+          fi
+          # Never print secret values
+          echo "--- .env keys ---"
+          cut -d= -f1 .env | grep -v '^#' | grep -v '^$' || true
+
+      - name: Ensure required Tinyauth vars for quick mode
+        if: env.MODE == 'quick'
+        run: |
+          set -euo pipefail
+          # Guarantee auth users exist even if ENV_FILE omitted them
+          if ! grep -qE '^TINYAUTH_AUTH_USERS=.+' .env; then
+            echo 'TINYAUTH_AUTH_USERS=user:$$2a$$10$$UdLYoJ5lgPsC0RKqYH/jMua7zIn0g9kPqWmhYayJYLaZQ/FTmH2/u' >> .env
+          fi
+          if ! grep -qE '^TINYAUTH_AUTH_SECURECOOKIE=' .env; then
+            echo 'TINYAUTH_AUTH_SECURECOOKIE=false' >> .env
+          fi
+
+      - name: Ensure COMPOSE_PROFILES for CI
+        run: |
+          set -euo pipefail
+          # Profiled services only start when listed in COMPOSE_PROFILES
+          if ! grep -qE '^COMPOSE_PROFILES=.+' .env; then
+            echo 'COMPOSE_PROFILES=core' >> .env
+            echo "Added COMPOSE_PROFILES=core"
+          else
+            echo "COMPOSE_PROFILES already set: $(grep -E '^COMPOSE_PROFILES=' .env | head -1)"
+          fi
+          # Named + Tailscale: optional full if TS_AUTHKEY present
+          if grep -qE '^TS_AUTHKEY=.+' .env && ! grep -qE '^COMPOSE_PROFILES=.*(full|tailscale)' .env; then
+            # append tailscale to existing profiles
+            sed -i 's/^COMPOSE_PROFILES=\(.*\)/COMPOSE_PROFILES=\1,tailscale/' .env || true
+            echo "Appended tailscale profile because TS_AUTHKEY is set"
+          fi
+
+      - name: Start Docker Compose stack
+        run: |
+          set -euo pipefail
+          chmod +x scripts/*.sh */scripts/*.sh 2>/dev/null || chmod +x scripts/*.sh
+          echo "Active COMPOSE_PROFILES=$(grep -E '^COMPOSE_PROFILES=' .env | head -1 | cut -d= -f2-)"
+          if [ "${MODE}" = "named" ]; then
+            # Production-like path: named tunnel from ENV_FILE
+            docker compose up -d --remove-orphans
+          else
+            # CI path: quick tunnel + catch-all Caddy
+            docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d --remove-orphans
+          fi
+          docker compose ps
+
+      - name: Wait and verify external access
+        env:
+          # For named tunnels, set PUBLIC_URL in ENV_FILE or rely on WHOAMI_HOST
+          TEST_TIMEOUT: "180"
+        run: ./scripts/wait-and-test.sh
+
+      - name: Show public URL
+        if: always()
+        run: |
+          if [ -f public-url.txt ]; then
+            echo "Public URL: $(cat public-url.txt)"
+            echo "PUBLIC_URL=$(cat public-url.txt)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "## Container status" >> "$GITHUB_STEP_SUMMARY"
+          docker compose ps >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Collect per-service logs
+        if: always()
+        run: |
+          set -euo pipefail
+          LOG_DIR="ci-logs"
+          mkdir -p "$LOG_DIR/services" "$LOG_DIR/inspect"
+
+          # Stack overview
+          {
+            echo "# docker compose ps -a"
+            docker compose ps -a || true
+            echo
+            echo "# docker compose config services"
+            docker compose config --services 2>/dev/null || true
+            echo
+            echo "# docker ps -a (project)"
+            docker ps -a --filter "label=com.docker.compose.project" || true
+          } > "$LOG_DIR/compose-ps.txt" 2>&1 || true
+
+          docker compose config > "$LOG_DIR/compose-config.yml" 2>/dev/null || true
+
+          if [ -f public-url.txt ]; then
+            cp public-url.txt "$LOG_DIR/public-url.txt" || true
+          fi
+
+          # Full combined log (all services, no tail limit)
+          docker compose logs --no-color --timestamps > "$LOG_DIR/all-services.log" 2>&1 || true
+
+          # Known stack services (always attempt) + any other compose services
+          SERVICES="caddy tinyauth whoami cloudflared tailscale"
+          EXTRA="$(docker compose config --services 2>/dev/null || true)"
+          for s in $EXTRA; do
+            case " $SERVICES " in
+              *" $s "*) ;;
+              *) SERVICES="$SERVICES $s" ;;
+            esac
+          done
+
+          for svc in $SERVICES; do
+            echo "Collecting logs for: $svc"
+            # Per-service full logs
+            docker compose logs --no-color --timestamps "$svc" \
+              > "$LOG_DIR/services/${svc}.log" 2>&1 || {
+                echo "(no logs or service not in this run)" > "$LOG_DIR/services/${svc}.log"
+              }
+
+            # Container inspect + recent events for detail
+            cid="$(docker compose ps -aq "$svc" 2>/dev/null | head -1 || true)"
+            if [ -n "${cid:-}" ]; then
+              docker inspect "$cid" > "$LOG_DIR/inspect/${svc}.json" 2>&1 || true
+              docker logs --timestamps "$cid" > "$LOG_DIR/services/${svc}.docker-logs.log" 2>&1 || true
+            else
+              echo '{"note":"container not found for this service in current compose run"}' \
+                > "$LOG_DIR/inspect/${svc}.json"
+            fi
+          done
+
+          # Manifest for artifact browsers
+          {
+            echo "collected_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "mode=${MODE:-unknown}"
+            echo "run_id=${GITHUB_RUN_ID:-}"
+            echo "run_attempt=${GITHUB_RUN_ATTEMPT:-}"
+            echo "sha=${GITHUB_SHA:-}"
+            echo "ref=${GITHUB_REF:-}"
+            echo "services=$SERVICES"
+            echo
+            echo "files:"
+            find "$LOG_DIR" -type f | sort
+          } > "$LOG_DIR/MANIFEST.txt"
+
+          echo "## Collected log files" >> "$GITHUB_STEP_SUMMARY"
+          find "$LOG_DIR" -type f | sort >> "$GITHUB_STEP_SUMMARY" || true
+          ls -laR "$LOG_DIR" || true
+
+      - name: Upload service logs artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stack-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci-logs/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Dump logs on failure (console)
+        if: failure()
+        run: |
+          docker compose ps -a || true
+          echo "===== all services (tail 200) ====="
+          docker compose logs --no-color --tail=200 || true
+          for svc in caddy tinyauth whoami cloudflared tailscale; do
+            echo "===== $svc (tail 100) ====="
+            docker compose logs --no-color --tail=100 "$svc" 2>&1 || true
+          done
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v --remove-orphans || docker compose down -v --remove-orphans || true

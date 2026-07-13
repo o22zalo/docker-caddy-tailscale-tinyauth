@@ -1,0 +1,60 @@
+# =============================================================================
+# docker-compose.yml — root join (toàn stack)
+# =============================================================================
+#
+# Mục đích trong dự án:
+#   File gốc ghép mọi service (mỗi service 1 file YAML riêng) thành một project
+#   Compose duy nhất qua `include`. Không định nghĩa service ở đây.
+#
+# Vai trò:
+#   Internet → Cloudflare Tunnel → Caddy → Tinyauth / whoami
+#   Tailnet  → Tailscale Serve   → Caddy  (profile tailscale)
+#
+# Tài liệu:
+#   - Compose include: https://docs.docker.com/compose/how-tos/multiple-compose-files/include/
+#   - Compose profiles: https://docs.docker.com/compose/how-tos/profiles/
+#   - Quy tắc dự án: AGENTS.md | README.md
+#
+# Profiles — bật/tắt service (COMPOSE_PROFILES trong .env):
+#   Riêng: caddy | tinyauth | whoami | cloudflare | tailscale
+#   Nhóm:  core (= public stack) | full (= core + tailscale)
+#   Mặc định khuyến nghị: COMPOSE_PROFILES=core
+#   Docs: https://docs.docker.com/compose/how-tos/profiles/
+#
+# Cách chạy:
+#   cp .env.example .env   # COMPOSE_PROFILES=core + secrets
+#   docker compose up -d
+#   COMPOSE_PROFILES=full docker compose up -d
+#   docker compose --profile tailscale up -d   # thêm CLI profile
+#
+# CI / quick tunnel:
+#   docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
+#
+# Multi-file không dùng include (tương đương):
+#   docker compose \
+#     -f networks/networks.yml \
+#     -f caddy/caddy.yml \
+#     -f tinyauth/tinyauth.yml \
+#     -f whoami/whoami.yml \
+#     -f cloudflare/cloudflare.yml \
+#     -f tailscale/tailscale.yml \
+#     up -d
+#
+# Ví dụ .env tối thiểu (prod):
+#   DOMAIN=example.com
+#   TUNNEL_TOKEN=eyJ...
+#   TINYAUTH_APPURL=https://auth.example.com
+#   TINYAUTH_HOST=http://auth.example.com
+#   TINYAUTH_AUTH_USERS=user:$$2a$$10$$...
+#   WHOAMI_HOST=http://whoami.example.com
+# =============================================================================
+
+name: proxy-stack
+
+include:
+  - path: ./networks/networks.yml
+  - path: ./caddy/caddy.yml
+  - path: ./tinyauth/tinyauth.yml
+  - path: ./whoami/whoami.yml
+  - path: ./cloudflare/cloudflare.yml
+  - path: ./tailscale/tailscale.yml

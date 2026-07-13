@@ -1,0 +1,35 @@
+# =============================================================================
+# whoami/whoami.yml — app demo (upstream)
+# =============================================================================
+#
+# Env — thứ tự ưu tiên:
+#   1) env_file ../.env  2) env_file ./.env  3) environment (YAML thắng)
+# Catalog: whoami/.env.example
+# Profiles: whoami | core | full
+# =============================================================================
+
+services:
+  whoami:
+    image: traefik/whoami:latest
+    container_name: whoami
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: false
+      - path: .env
+        required: false
+    environment:
+      # Image whoami: biến tùy chọn (nếu có trong .env sẽ vào container)
+      WHOAMI_NAME: ${WHOAMI_NAME:-}
+      WHOAMI_PORT_NUMBER: ${WHOAMI_PORT_NUMBER:-}
+      PORT: ${PORT:-}
+    networks:
+      - proxy
+    labels:
+      caddy: ${CADDY_WHOAMI_HOST:-${WHOAMI_HOST:-http://whoami.${DOMAIN:-localhost}}}
+      caddy.reverse_proxy: "{{upstreams 80}}"
+      caddy.import: tinyauth_forwarder *
+    profiles:
+      - whoami
+      - core
+      - full

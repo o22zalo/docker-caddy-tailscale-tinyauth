@@ -1,0 +1,34 @@
+# =============================================================================
+# docker-compose.ci.yml — override cho CI / smoke test
+# =============================================================================
+#
+# environment ở đây ghi đè env_file + environment của service yml (YAML thắng).
+# =============================================================================
+
+services:
+  cloudflared:
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --url
+      - http://caddy:80
+    environment:
+      # Ép quick-tunnel: không dùng named token dù .env có TUNNEL_TOKEN
+      TUNNEL_TOKEN: ""
+
+  whoami:
+    labels: !override
+      caddy: ":80"
+      caddy.reverse_proxy: "{{upstreams 80}}"
+
+  tinyauth:
+    labels: !override
+      caddy: "http://tinyauth.internal"
+      caddy.reverse_proxy: "{{upstreams 3000}}"
+    environment:
+      TINYAUTH_APPURL: http://tinyauth.internal
+      TINYAUTH_AUTH_SECURECOOKIE: "false"
+
+  caddy:
+    ports: !override
+      - "8080:80"
