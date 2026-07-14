@@ -22,7 +22,7 @@ fi
 DEMO_HASH='$$2a$$10$$UdLYoJ5lgPsC0RKqYH/jMua7zIn0g9kPqWmhYayJYLaZQ/FTmH2/u'
 if grep -qF "$DEMO_HASH" .env 2>/dev/null; then
   echo "WARNING: TINYAUTH_AUTH_USERS uses the demo password (user:password)."
-  echo "         Change it before production! ./tinyauth/scripts/generate-user.sh"
+  echo "         Change it before production! ./tinyauth/scripts/generate-user.mjs"
 fi
 
 MODE="prod"
@@ -80,4 +80,4 @@ docker compose ps
 echo
 echo "Active profiles tip: echo \$COMPOSE_PROFILES or check .env"
 echo "Tunnel logs: docker compose logs -f cloudflared"
-echo "Tinyauth user: ./tinyauth/scripts/generate-user.sh"
+echo "Tinyauth user: ./tinyauth/scripts/generate-user.mjs"

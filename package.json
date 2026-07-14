@@ -1,0 +1,22 @@
+{
+  "name": "docker-caddy-tailscale-tinyauth",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Modular Docker reverse-proxy stack: Cloudflare Tunnel, Tailscale, Caddy, Tinyauth",
+  "scripts": {
+    "user": "node tinyauth/scripts/generate-user.mjs",
+    "user:docker": "docker run --rm -it ghcr.io/steveiliop56/tinyauth:v5 user create --interactive",
+    "up": "docker compose up -d --remove-orphans",
+    "up:core": "COMPOSE_PROFILES=core docker compose up -d --remove-orphans",
+    "up:full": "COMPOSE_PROFILES=full docker compose up -d --remove-orphans",
+    "down": "docker compose down --remove-orphans",
+    "logs": "docker compose logs -f --tail=100",
+    "ps": "docker compose ps",
+    "config": "docker compose config",
+    "tunnel-url": "bash cloudflare/scripts/extract-tunnel-url.sh",
+    "ts-status": "bash tailscale/scripts/status.sh"
+  },
+  "devDependencies": {
+    "bcryptjs": "^2.4.3"
+  }
+}

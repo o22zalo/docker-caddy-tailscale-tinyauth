@@ -42,7 +42,7 @@ test-ci: up-ci
 	bash scripts/wait-and-test.sh
 
 user:
-	bash tinyauth/scripts/generate-user.sh
+	node tinyauth/scripts/generate-user.mjs
 
 tunnel-url:
 	bash cloudflare/scripts/extract-tunnel-url.sh

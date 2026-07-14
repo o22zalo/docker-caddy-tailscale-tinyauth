@@ -77,7 +77,7 @@ Helpers:
 ```bash
 chmod +x scripts/*.sh */scripts/*.sh
 ./scripts/up.sh                          # stack-wide
-./tinyauth/scripts/generate-user.sh      # service-local
+./tinyauth/scripts/generate-user.mjs      # service-local
 ./cloudflare/scripts/extract-tunnel-url.sh
 ./tailscale/scripts/status.sh
 ./caddy/scripts/dump-config.sh
@@ -88,7 +88,7 @@ Service-specific scripts live under `<service>/scripts/`. Only orchestration scr
 ### Generate a Tinyauth user
 
 ```bash
-./tinyauth/scripts/generate-user.sh
+./tinyauth/scripts/generate-user.mjs
 # paste into TINYAUTH_AUTH_USERS (double every $ as $$ for Compose)
 ```
 
