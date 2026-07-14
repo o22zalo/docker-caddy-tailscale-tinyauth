@@ -31,14 +31,14 @@ README.md                # Human-facing docs
 
 ### Service folders today
 
-| Directory     | Compose file              | Env catalog              | Notes                          |
-|---------------|---------------------------|--------------------------|--------------------------------|
-| `networks/`   | `networks.yml`            | `networks/.env.example`  | Shared `proxy` network         |
-| `caddy/`      | `caddy.yml`               | `caddy/.env.example`     | Reverse proxy                  |
-| `tinyauth/`   | `tinyauth.yml`            | `tinyauth/.env.example`  | Forward-auth login             |
-| `whoami/`     | `whoami.yml`              | `whoami/.env.example`    | Demo upstream                  |
-| `cloudflare/` | `cloudflare.yml`          | `cloudflare/.env.example`| cloudflared public edge        |
-| `tailscale/`  | `tailscale.yml`           | `tailscale/.env.example` | Profiles: `tailscale`, `full`  |
+| Directory     | Compose file     | Env catalog               | Notes                         |
+| ------------- | ---------------- | ------------------------- | ----------------------------- |
+| `networks/`   | `networks.yml`   | `networks/.env.example`   | Shared `proxy` network        |
+| `caddy/`      | `caddy.yml`      | `caddy/.env.example`      | Reverse proxy                 |
+| `tinyauth/`   | `tinyauth.yml`   | `tinyauth/.env.example`   | Forward-auth login            |
+| `whoami/`     | `whoami.yml`     | `whoami/.env.example`     | Demo upstream                 |
+| `cloudflare/` | `cloudflare.yml` | `cloudflare/.env.example` | cloudflared public edge       |
+| `tailscale/`  | `tailscale.yml`  | `tailscale/.env.example`  | Profiles: `tailscale`, `full` |
 
 ### Naming rules
 
@@ -52,11 +52,11 @@ README.md                # Human-facing docs
 
 ## Scripts placement
 
-| Kind | Location | Examples |
-|------|----------|----------|
-| Service-only | `<service>/scripts/*` | `tinyauth/scripts/generate-user.mjs`, `cloudflare/scripts/provision-tunnel.mjs`, `cloudflare/scripts/extract-tunnel-url.mjs`, `tailscale/scripts/status.mjs`, `caddy/scripts/dump-config.mjs` |
-| Stack-wide | `scripts/*.mjs` | `scripts/up.mjs`, `scripts/wait-and-test.mjs` |
-| CI / runner | `scripts/runners/*.mjs` | `scripts/runners/setup-env.mjs`, `scripts/runners/start-stack.mjs`, `scripts/runners/collect-logs.mjs`, `scripts/runners/cache-docker-build-github.mjs` |
+| Kind         | Location                | Examples                                                                                                                                                                                      |
+| ------------ | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Service-only | `<service>/scripts/*`   | `tinyauth/scripts/generate-user.mjs`, `cloudflare/scripts/provision-tunnel.mjs`, `cloudflare/scripts/extract-tunnel-url.mjs`, `tailscale/scripts/status.mjs`, `caddy/scripts/dump-config.mjs` |
+| Stack-wide   | `scripts/*.mjs`         | `scripts/up.mjs`, `scripts/wait-and-test.mjs`                                                                                                                                                 |
+| CI / runner  | `scripts/runners/*.mjs` | `scripts/runners/setup-env.mjs`, `scripts/runners/start-stack.mjs`, `scripts/runners/collect-logs.mjs`, `scripts/runners/cache-docker-build-github.mjs`                                       |
 
 Rules:
 
@@ -71,13 +71,14 @@ Rules:
 
 **Do not** put multi-step or branching logic inline in Compose YAML or GitHub Actions workflow YAML. Extract to a script file instead.
 
-| Where | Rule | Why |
-|-------|------|-----|
-| CI workflow (`test.yml`) | ≥ 5 lines of bash → move to `scripts/runners/*.mjs` | Testable, reviewable, reusable |
-| Compose YAML | No inline shell; use labels/env/scripts | Compose is declarative; logic belongs in scripts |
-| Script language | `.mjs` (Node.js ES module) for all scripts | GitHub Actions runners + local dev have Node.js; `.mjs` is cross-platform, testable, no extra deps |
+| Where                    | Rule                                                | Why                                                                                                |
+| ------------------------ | --------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| CI workflow (`test.yml`) | ≥ 5 lines of bash → move to `scripts/runners/*.mjs` | Testable, reviewable, reusable                                                                     |
+| Compose YAML             | No inline shell; use labels/env/scripts             | Compose is declarative; logic belongs in scripts                                                   |
+| Script language          | `.mjs` (Node.js ES module) for all scripts          | GitHub Actions runners + local dev have Node.js; `.mjs` is cross-platform, testable, no extra deps |
 
 Exceptions (OK to keep inline):
+
 - ≤ 4 lines of trivial shell (e.g. `echo`, `cat`, single `docker compose` call).
 - GitHub Actions expressions (`${{ ... }}`) — these are YAML, not shell.
 
@@ -85,12 +86,13 @@ Exceptions (OK to keep inline):
 
 Every `.mjs` script must support these flags:
 
-| Flag | Meaning |
-|------|---------|
+| Flag        | Meaning                                                                    |
+| ----------- | -------------------------------------------------------------------------- |
 | `--dry-run` | Show what would be done — no API calls, no file writes, no docker commands |
-| `--silent` | Suppress console output (errors still print to stderr) |
+| `--silent`  | Suppress console output (errors still print to stderr)                     |
 
 Rules:
+
 - Parse flags from `process.argv.slice(2)` at the top of the script.
 - Use `const log = (...a) => { if (!SILENT) console.log(...a); }` for output.
 - Guard all side effects (file writes, API calls, docker commands) with `if (DRY_RUN) { log("[DRY RUN] ..."); return; }`.
@@ -101,11 +103,11 @@ Rules:
 
 **Do not** hardcode lists, paths, or config values inside `.mjs` scripts. Extract to a `.jsonc` file in the same directory.
 
-| Where | Rule | Why |
-|-------|------|-----|
-| Runners (`scripts/runners/`) | Config → `<name>-config.jsonc` in same dir | Centralized, editable without touching code |
-| Service scripts (`<service>/scripts/`) | Config → `<name>.jsonc` in same dir | Same |
-| Fallback | Script must work if config file missing — use sensible defaults | Backward compatible |
+| Where                                  | Rule                                                            | Why                                         |
+| -------------------------------------- | --------------------------------------------------------------- | ------------------------------------------- |
+| Runners (`scripts/runners/`)           | Config → `<name>-config.jsonc` in same dir                      | Centralized, editable without touching code |
+| Service scripts (`<service>/scripts/`) | Config → `<name>.jsonc` in same dir                             | Same                                        |
+| Fallback                               | Script must work if config file missing — use sensible defaults | Backward compatible                         |
 
 Example:
 
@@ -170,23 +172,23 @@ const config = loadConfig();
 
 #### Profile map
 
-| Profile | Enables |
-|---------|---------|
-| `caddy` | Caddy only |
-| `tinyauth` | Tinyauth only |
-| `whoami` | Whoami only |
-| `cloudflare` | cloudflared only |
-| `tailscale` | Tailscale only |
-| `core` | caddy + tinyauth + whoami + cloudflare (public path) |
-| `full` | core + tailscale |
+| Profile      | Enables                                              |
+| ------------ | ---------------------------------------------------- |
+| `caddy`      | Caddy only                                           |
+| `tinyauth`   | Tinyauth only                                        |
+| `whoami`     | Whoami only                                          |
+| `cloudflare` | cloudflared only                                     |
+| `tailscale`  | Tailscale only                                       |
+| `core`       | caddy + tinyauth + whoami + cloudflare (public path) |
+| `full`       | core + tailscale                                     |
 
-| Service | Profiles on the service |
-|---------|-------------------------|
-| `caddy` | `caddy`, `core`, `full` |
-| `tinyauth` | `tinyauth`, `core`, `full` |
-| `whoami` | `whoami`, `core`, `full` |
+| Service       | Profiles on the service      |
+| ------------- | ---------------------------- |
+| `caddy`       | `caddy`, `core`, `full`      |
+| `tinyauth`    | `tinyauth`, `core`, `full`   |
+| `whoami`      | `whoami`, `core`, `full`     |
 | `cloudflared` | `cloudflare`, `core`, `full` |
-| `tailscale` | `tailscale`, `full` |
+| `tailscale`   | `tailscale`, `full`          |
 
 ```bash
 # .env (recommended default)
@@ -233,9 +235,9 @@ When adding a service, update **both** root `include` and this documented multi-
 These rules apply to **full named-tunnel config** and **quick-tunnel CI** alike.
 
 1. **Never inject empty optional env via Compose `environment:`**  
-   Patterns like `FOO: ${FOO:-}` put `FOO=""` into the container. Many apps treat “set but empty” differently from “unset” (Tinyauth v5: `TINYAUTH_SERVER_SOCKETPATH=""`, empty OAuth client IDs; caddy-docker-proxy: empty `CADDY_DOCKER_*` paths).  
-   - **Required / stack defaults** with non-empty defaults → OK in `environment:`.  
-   - **Optional knobs** → only in root `.env` when the user actually needs them; arrive via `env_file`.  
+   Patterns like `FOO: ${FOO:-}` put `FOO=""` into the container. Many apps treat “set but empty” differently from “unset” (Tinyauth v5: `TINYAUTH_SERVER_SOCKETPATH=""`, empty OAuth client IDs; caddy-docker-proxy: empty `CADDY_DOCKER_*` paths).
+   - **Required / stack defaults** with non-empty defaults → OK in `environment:`.
+   - **Optional knobs** → only in root `.env` when the user actually needs them; arrive via `env_file`.
    - In catalogs (`<service>/.env.example`), keep unused optionals **commented out**, not `KEY=`.
 
 2. **Do not paste the full catalog into root `.env` with blank values.**  
@@ -260,13 +262,13 @@ These rules apply to **full named-tunnel config** and **quick-tunnel CI** alike.
 
 ### Named vs quick — what breaks where
 
-| Issue | Full config (named + auth) | Quick CI (no config) |
-|-------|----------------------------|----------------------|
-| Empty optional env in YAML / `.env` | **Yes** — Tinyauth/Caddy can fail to start | **Yes** |
-| `curl -L` following auth redirect | Risky if `APPURL` wrong; OK if public `https://auth…` | **Fails** if forward-auth still on (redirect → internal host) |
-| Missing `TUNNEL_TOKEN` | cloudflared crash-loops (`tunnel run`) | Expected — use CI override |
-| Whoami protected by Tinyauth | **Intended** — public probe may get **302/401** | Must **disable** auth (CI `labels: !override`) |
-| QUIC on GHA | Rare flake with `protocol=auto` | Common — force `http2` in CI |
+| Issue                               | Full config (named + auth)                            | Quick CI (no config)                                          |
+| ----------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------- |
+| Empty optional env in YAML / `.env` | **Yes** — Tinyauth/Caddy can fail to start            | **Yes**                                                       |
+| `curl -L` following auth redirect   | Risky if `APPURL` wrong; OK if public `https://auth…` | **Fails** if forward-auth still on (redirect → internal host) |
+| Missing `TUNNEL_TOKEN`              | cloudflared crash-loops (`tunnel run`)                | Expected — use CI override                                    |
+| Whoami protected by Tinyauth        | **Intended** — public probe may get **302/401**       | Must **disable** auth (CI `labels: !override`)                |
+| QUIC on GHA                         | Rare flake with `protocol=auto`                       | Common — force `http2` in CI                                  |
 
 Full config is **not** immune to empty-env / probe bugs; only the trycloudflare-specific pieces are CI-only.
 
@@ -364,16 +366,16 @@ docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
 
 Repo này dùng hook **prepare-commit-msg** + **post-commit** (git-o / `setupgit commithook`):
 
-| Bước | Việc |
-|------|------|
-| 1 | Ghi **nội dung commit message** (mô tả công việc vừa xong) vào file **`.git/.git-o-commit-template`** |
-| 2 | Chạy **`git commit`** (hoặc `git commit` rồi lưu editor) — **không** dùng `git commit -m "..."` nếu muốn template được áp dụng |
-| 3 | Hook `prepare-commit-msg` chép nội dung template → message commit (chỉ commit thường; bỏ qua merge/squash/`-m`) |
-| 4 | Sau commit **thành công**, hook `post-commit` **clear** template |
+| Bước | Việc                                                                                                                           |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 1    | Ghi **nội dung commit message** (mô tả công việc vừa xong) vào file **`.git/.git-o-commit-template`**                          |
+| 2    | Chạy **`git commit`** (hoặc `git commit` rồi lưu editor) — **không** dùng `git commit -m "..."` nếu muốn template được áp dụng |
+| 3    | Hook `prepare-commit-msg` chép nội dung template → message commit (chỉ commit thường; bỏ qua merge/squash/`-m`)                |
+| 4    | Sau commit **thành công**, hook `post-commit` **clear** template                                                               |
 
 ### Quy tắc cho agent / người làm việc trong repo
 
-1. **Trước khi coi task là xong**, nếu có thay đổi cần commit: **luôn ghi/cập nhật** `.git/.git-o-commit-template` với message rõ ràng (tiếng Việt hoặc Anh, complete sentences, nêu *what* + *why*).
+1. **Trước khi coi task là xong**, nếu có thay đổi cần commit: **luôn ghi/cập nhật** `.git/.git-o-commit-template` với message rõ ràng (tiếng Việt hoặc Anh, complete sentences, nêu _what_ + _why_).
 2. File nằm trong **`.git/`** — không commit vào tree; mỗi clone/máy có template riêng sau khi cài hook.
 3. **Không** clear template thủ công trước khi commit (hook post-commit lo sau khi commit OK; clear sớm sẽ mất message nếu user hủy commit).
 4. Agent **chỉ ghi template**, không tự chạy `git commit` hay `git push` — việc commit/push do user thực hiện.
@@ -402,6 +404,5 @@ vs quick modes in AGENTS.md and README.
 - [ ] Root `include` list updated if services changed
 - [ ] Env vars documented; Tinyauth keys valid for v5
 - [ ] Root `.env.example` / `.env.ci` set `COMPOSE_PROFILES` appropriately
-- [ ] CI still covers external access
 - [ ] README and AGENTS.md still accurate
 - [ ] **Đã ghi nội dung cập nhật vào `.git/.git-o-commit-template`** (sẵn sàng user `git commit` không `-m`)
