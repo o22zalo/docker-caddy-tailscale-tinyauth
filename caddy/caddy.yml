@@ -41,11 +41,11 @@ services:
     networks:
       - proxy
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/"]
+      test: ["CMD", "caddy", "version"]
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
     labels:
       caddy: (tinyauth_forwarder)
       caddy.forward_auth: tinyauth:3000

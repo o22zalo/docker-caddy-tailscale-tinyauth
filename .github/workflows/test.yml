@@ -31,6 +31,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Compute Docker cache key
+        run: node scripts/runners/cache-docker-build-github.mjs env
+
+      - name: Restore Docker image cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.DOCKER_CACHE_PATH }}
+          key: ${{ env.DOCKER_CACHE_KEY }}
+          restore-keys: |
+            docker-images-
+
+      - name: Load cached Docker images
+        run: node scripts/runners/cache-docker-build-github.mjs restore
+
       - name: Write .env from GitHub secret ENV_FILE
         env:
           ENV_FILE: ${{ secrets.ENV_FILE }}
@@ -109,6 +123,10 @@ jobs:
             docker compose logs --no-color cloudflared || true
             exit 1
           fi
+
+      - name: Save Docker images to cache
+        if: always()
+        run: node scripts/runners/cache-docker-build-github.mjs save
 
       - name: Wait and verify external access
         env:
