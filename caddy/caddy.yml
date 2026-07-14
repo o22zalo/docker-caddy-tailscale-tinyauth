@@ -15,7 +15,7 @@
 
 services:
   caddy:
-    image: lucaslorentz/caddy-docker-proxy:2.10.0
+    image: lucaslorentz/caddy-docker-proxy:2.13.1
     container_name: caddy
     restart: unless-stopped
     ports:
