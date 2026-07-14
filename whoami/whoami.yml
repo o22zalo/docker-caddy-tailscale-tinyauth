@@ -10,7 +10,7 @@
 
 services:
   whoami:
-    image: traefik/whoami:latest
+    image: traefik/whoami:v1.11.0
     container_name: whoami
     restart: unless-stopped
     env_file:

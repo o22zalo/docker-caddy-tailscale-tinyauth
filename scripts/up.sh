@@ -19,6 +19,12 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
+DEMO_HASH='$$2a$$10$$UdLYoJ5lgPsC0RKqYH/jMua7zIn0g9kPqWmhYayJYLaZQ/FTmH2/u'
+if grep -qF "$DEMO_HASH" .env 2>/dev/null; then
+  echo "WARNING: TINYAUTH_AUTH_USERS uses the demo password (user:password)."
+  echo "         Change it before production! ./tinyauth/scripts/generate-user.sh"
+fi
+
 MODE="prod"
 EXTRA_PROFILES=()
 
