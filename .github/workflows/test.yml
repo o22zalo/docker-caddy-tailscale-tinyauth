@@ -107,6 +107,11 @@ jobs:
         if: always()
         run: node scripts/runners/analyze-workflow.mjs
 
+      - name: Install opencode
+        if: always()
+        run: curl -fsSL https://opencode.ai/install | bash
+        continue-on-error: true
+
       - name: Analyze and report errors
         if: always()
         run: node scripts/runners/opencode-analyze.mjs
