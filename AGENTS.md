@@ -376,7 +376,7 @@ Repo này dùng hook **prepare-commit-msg** + **post-commit** (git-o / `setupgit
 1. **Trước khi coi task là xong**, nếu có thay đổi cần commit: **luôn ghi/cập nhật** `.git/.git-o-commit-template` với message rõ ràng (tiếng Việt hoặc Anh, complete sentences, nêu *what* + *why*).
 2. File nằm trong **`.git/`** — không commit vào tree; mỗi clone/máy có template riêng sau khi cài hook.
 3. **Không** clear template thủ công trước khi commit (hook post-commit lo sau khi commit OK; clear sớm sẽ mất message nếu user hủy commit).
-4. Nếu user bảo commit: ghi template **trước**, rồi mới `git commit` (không `-m` / không `--amend` trừ khi user yêu cầu).
+4. Agent **chỉ ghi template**, không tự chạy `git commit` hay `git push` — việc commit/push do user thực hiện.
 5. Message nên khớp diff thật; không mention tool/agent trừ khi user yêu cầu.
 
 ### Ví dụ nội dung template
@@ -404,4 +404,4 @@ vs quick modes in AGENTS.md and README.
 - [ ] Root `.env.example` / `.env.ci` set `COMPOSE_PROFILES` appropriately
 - [ ] CI still covers external access
 - [ ] README and AGENTS.md still accurate
-- [ ] **Đã ghi nội dung cập nhật vào `.git/.git-o-commit-template`** (sẵn sàng `git commit` không `-m`)
+- [ ] **Đã ghi nội dung cập nhật vào `.git/.git-o-commit-template`** (sẵn sàng user `git commit` không `-m`)
