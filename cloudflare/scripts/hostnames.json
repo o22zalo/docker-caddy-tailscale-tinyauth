@@ -1,9 +1,0 @@
-{
-  "hostnames": [
-    "auth",
-    "files",
-    "ttyd"
-  ],
-  "service_url": "http://caddy:80",
-  "catch_all": "http_status:404"
-}

@@ -1,7 +1,19 @@
 #!/usr/bin/env node
 // tinyauth/scripts/generate-user.mjs
 // Generate bcrypt hash for TINYAUTH_AUTH_USERS — no Docker required.
+//
+// Usage:
+//   node tinyauth/scripts/generate-user.mjs                    # interactive
+//   node tinyauth/scripts/generate-user.mjs --silent -u user -p pass
+//   node tinyauth/scripts/generate-user.mjs --dry-run          # show hash only
 import { createInterface } from "node:readline";
+
+const args = process.argv.slice(2);
+const DRY_RUN = args.includes("--dry-run");
+const SILENT = args.includes("--silent");
+const flagVal = (f) => { const i = args.indexOf(f); return i !== -1 ? args[i + 1] : ""; };
+const cliUser = flagVal("-u");
+const cliPass = flagVal("-p");
 
 async function ask(question) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -36,12 +48,10 @@ async function askSecret(question) {
 }
 
 async function hashBcrypt(pw) {
-  // Try bcryptjs (pure JS, no native build)
   try {
     const { default: bcryptjs } = await import("bcryptjs");
     return bcryptjs.hashSync(pw, 10);
   } catch {}
-  // Fallback: openssl
   try {
     const { execSync } = await import("node:child_process");
     return execSync(`openssl passwd -6 ${JSON.stringify(pw)}`).toString().trim();
@@ -49,12 +59,12 @@ async function hashBcrypt(pw) {
   return null;
 }
 
-console.log("=== Tinyauth user generator ===\n");
+if (!SILENT) console.log("=== Tinyauth user generator ===\n");
 
-const user = await ask("Username: ");
+const user = (SILENT || DRY_RUN) && cliUser ? cliUser : await ask("Username: ");
 if (!user) { console.error("ERROR: username cannot be empty"); process.exit(1); }
 
-const pass = await askSecret("Password: ");
+const pass = (SILENT || DRY_RUN) && cliPass ? cliPass : await askSecret("Password: ");
 if (!pass) { console.error("ERROR: password cannot be empty"); process.exit(1); }
 
 const hash = await hashBcrypt(pass);
@@ -64,6 +74,16 @@ if (!hash) {
 }
 
 const composeHash = hash.replace(/\$/g, "$$$$");
+
+if (DRY_RUN) {
+  console.log(`[DRY RUN] ${user}:${hash}`);
+  process.exit(0);
+}
+
+if (SILENT) {
+  console.log(`${user}:${composeHash}`);
+  process.exit(0);
+}
 
 console.log(`
 === Result ===

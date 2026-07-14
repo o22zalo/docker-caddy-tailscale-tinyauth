@@ -6,7 +6,12 @@
 // ingress, creates DNS CNAME records. Writes results back to .env.
 //
 // Usage:
-//   node cloudflare/scripts/provision-tunnel.mjs [--env path/to/.env]
+//   node cloudflare/scripts/provision-tunnel.mjs [--env path] [--dry-run] [--silent]
+//
+// Flags:
+//   --env path    Path to .env file (default: project root .env)
+//   --dry-run     Show what would be done, no API calls or .env writes
+//   --silent      Skip confirmation prompt, run directly
 //
 // Env vars (from .env):
 //   DOMAIN            required — root domain (e.g. example.com)
@@ -19,27 +24,34 @@
 //   CF_TUNNEL_ID      optional — auto-created if missing
 //   CF_TUNNEL_TOKEN   optional — auto-fetched if missing
 //
-// Security:
-//   CF_API_TOKEN (scoped, recommended) over Global API Key.
-//   Token with full account permissions for Tunnel, DNS, Workers, etc.
-//
 // Docs:
 //   - Tunnel API: https://developers.cloudflare.com/api/resources/zero_trust/subresources/tunnels/
 //   - DNS API: https://developers.cloudflare.com/api/resources/dns/subresources/records/
-//   - Auth: https://developers.cloudflare.com/fundamentals/api/get-started/keys/
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
+import { createInterface } from "node:readline";
+import { parse } from "jsonc-parser";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
-const HOSTNAMES_FILE = resolve(__dirname, "hostnames.json");
+const HOSTNAMES_FILE = resolve(__dirname, "hostnames.jsonc");
 const API = "https://api.cloudflare.com/client/v4";
 
 // ── CLI args ─────────────────────────────────────────────────────
-const envIdx = process.argv.indexOf("--env");
-const ENV_FILE = envIdx !== -1 ? resolve(process.argv[envIdx + 1]) : resolve(ROOT, ".env");
+const args = process.argv.slice(2);
+const DRY_RUN = args.includes("--dry-run");
+const SILENT = args.includes("--silent");
+const envIdx = args.indexOf("--env");
+const ENV_FILE = envIdx !== -1 ? resolve(args[envIdx + 1]) : resolve(ROOT, ".env");
+
+async function askConfirm(question) {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((res) => {
+    rl.question(`${question} [y/N] `, (ans) => { rl.close(); res(ans.toLowerCase() === "y"); });
+  });
+}
 
 // ── .env read/write ──────────────────────────────────────────────
 function readEnv(file) {
@@ -53,6 +65,7 @@ function readEnv(file) {
 }
 
 function writeEnvVar(file, key, value) {
+  if (DRY_RUN) return;
   let content = existsSync(file) ? readFileSync(file, "utf8") : "";
   const regex = new RegExp(`^${key}=.*$`, "m");
   const line = `${key}=${value}`;
@@ -66,20 +79,14 @@ function writeEnvVar(file, key, value) {
 
 // ── Cloudflare API ───────────────────────────────────────────────
 function getAuthHeaders(env) {
-  if (env.CF_API_TOKEN) {
-    return { Authorization: `Bearer ${env.CF_API_TOKEN}` };
-  }
-  if (env.CF_API_EMAIL && env.CF_API_KEY) {
-    return { "X-Auth-Email": env.CF_API_EMAIL, "X-Auth-Key": env.CF_API_KEY };
-  }
+  if (env.CF_API_TOKEN) return { Authorization: `Bearer ${env.CF_API_TOKEN}` };
+  if (env.CF_API_EMAIL && env.CF_API_KEY) return { "X-Auth-Email": env.CF_API_EMAIL, "X-Auth-Key": env.CF_API_KEY };
   return null;
 }
 
 async function cf(method, path, body, headers) {
-  const opts = {
-    method,
-    headers: { "Content-Type": "application/json", ...headers },
-  };
+  if (DRY_RUN) return { success: true, result: {} };
+  const opts = { method, headers: { "Content-Type": "application/json", ...headers } };
   if (body) opts.body = JSON.stringify(body);
   const resp = await fetch(`${API}${path}`, opts);
   const json = await resp.json();
@@ -91,9 +98,25 @@ async function cf(method, path, body, headers) {
   return json;
 }
 
+// ── Hostnames config ─────────────────────────────────────────────
+function loadHostnames(domain) {
+  let hostnames = ["auth", "files", "ttyd"];
+  let serviceUrl = "http://caddy:80";
+  let catchAll = "http_status:404";
+  if (existsSync(HOSTNAMES_FILE)) {
+    const raw = readFileSync(HOSTNAMES_FILE, "utf8");
+    const cfg = parse(raw);
+    if (cfg.hostnames?.length) hostnames = cfg.hostnames;
+    if (cfg.service_url) serviceUrl = cfg.service_url;
+    if (cfg.catch_all) catchAll = cfg.catch_all;
+  }
+  const fqdns = hostnames.map((h) => `${h}.${domain}`);
+  return { hostnames, fqdns, serviceUrl, catchAll };
+}
+
 // ── Main ─────────────────────────────────────────────────────────
 async function main() {
-  console.log("=== Cloudflare Tunnel Provisioner ===\n");
+  console.log(`=== Cloudflare Tunnel Provisioner${DRY_RUN ? " (DRY RUN)" : ""} ===\n`);
 
   // 1. Read .env
   if (!existsSync(ENV_FILE)) {
@@ -101,114 +124,138 @@ async function main() {
     process.exit(1);
   }
   const env = readEnv(ENV_FILE);
-  console.log(`Env file: ${ENV_FILE}`);
 
-  // 2. Validate DOMAIN
-  if (!env.DOMAIN) {
-    console.error("ERROR: DOMAIN not set in .env. Cannot provision tunnel.");
+  // 2. Validate required vars
+  const missing = [];
+  if (!env.DOMAIN) missing.push("DOMAIN");
+  if (!getAuthHeaders(env)) missing.push("CF_API_TOKEN (or CF_API_EMAIL + CF_API_KEY)");
+  if (!env.CF_ACCOUNT_ID) missing.push("CF_ACCOUNT_ID");
+  if (missing.length) {
+    console.error(`ERROR: missing in .env:\n  ${missing.join("\n  ")}`);
     process.exit(1);
   }
+
   const domain = env.DOMAIN;
-  console.log(`Domain: ${domain}`);
-
-  // 3. Validate auth
-  const authHeaders = getAuthHeaders(env);
-  if (!authHeaders) {
-    console.error("ERROR: set CF_API_TOKEN, or CF_API_EMAIL + CF_API_KEY in .env");
-    process.exit(1);
-  }
-  console.log(`Auth: ${env.CF_API_TOKEN ? "API Token" : "Global API Key"}\n`);
-
-  // 4. Validate account
-  if (!env.CF_ACCOUNT_ID) {
-    console.error("ERROR: CF_ACCOUNT_ID not set in .env.");
-    process.exit(1);
-  }
   const accountId = env.CF_ACCOUNT_ID;
+  const authHeaders = getAuthHeaders(env);
+  const authType = env.CF_API_TOKEN ? "API Token" : "Global API Key";
 
-  // 5. Resolve zone ID
+  // 3. Resolve zone ID (existing or new)
   let zoneId = env.CF_ZONE_ID || "";
+  let zoneAction = "from .env";
   if (!zoneId) {
-    console.log(`==> Resolving zone ID for ${domain}...`);
+    if (!DRY_RUN) {
+      const zoneResp = await cf("GET", `/zones?name=${domain}`, null, authHeaders);
+      zoneId = zoneResp.result?.[0]?.id || "";
+      if (!zoneId) {
+        console.error(`ERROR: zone ${domain} not found. Add site to Cloudflare first.`);
+        process.exit(1);
+      }
+    } else {
+      zoneId = "(will resolve from API)";
+    }
+    zoneAction = "resolve from API";
+  }
+
+  // 4. Tunnel
+  const tunnelName = env.CF_TUNNEL_NAME || `${domain}-tunnel`;
+  let tunnelId = env.CF_TUNNEL_ID || "";
+  let tunnelAction = "from .env";
+  if (!tunnelId) {
+    tunnelAction = DRY_RUN ? "create via API" : "create or lookup";
+  }
+
+  // 5. Token
+  let tunnelToken = env.CF_TUNNEL_TOKEN || "";
+  let tokenAction = "from .env";
+  if (!tunnelToken) {
+    tokenAction = DRY_RUN ? "fetch from API" : "fetch";
+  }
+
+  // 6. Hostnames
+  const { fqdns, serviceUrl, catchAll } = loadHostnames(domain);
+
+  // ── Confirmation summary ───────────────────────────────────────
+  console.log("─".repeat(60));
+  console.log(`Env file:        ${ENV_FILE}`);
+  console.log(`Domain:          ${domain}`);
+  console.log(`Auth:            ${authType}`);
+  console.log(`Account ID:      ${accountId}`);
+  console.log(`Zone ID:         ${zoneId} (${zoneAction})`);
+  console.log(`Tunnel name:     ${tunnelName}`);
+  console.log(`Tunnel ID:       ${tunnelId || "(new)"} (${tunnelAction})`);
+  console.log(`Tunnel token:    ${tunnelToken ? tunnelToken.slice(0, 20) + "..." : "(new)"} (${tokenAction})`);
+  console.log(`Ingress:         ${fqdns.length} hostnames -> ${serviceUrl}`);
+  console.log(`Catch-all:       ${catchAll}`);
+  console.log(`DNS records:`);
+  for (const h of fqdns) console.log(`  CNAME  ${h} -> {tunnel_id}.cfargotunnel.com  (proxied)`);
+  console.log("─".repeat(60));
+
+  if (DRY_RUN) {
+    console.log("\n[DRY RUN] No API calls or .env writes performed.");
+    return;
+  }
+
+  // Ask confirmation unless --silent
+  if (!SILENT) {
+    const ok = await askConfirm("\nProceed?");
+    if (!ok) {
+      console.log("Aborted.");
+      return;
+    }
+  }
+
+  // ── Execute ────────────────────────────────────────────────────
+  // Zone ID
+  if (!env.CF_ZONE_ID) {
+    console.log(`\n==> Resolving zone ID for ${domain}...`);
     const zoneResp = await cf("GET", `/zones?name=${domain}`, null, authHeaders);
     zoneId = zoneResp.result?.[0]?.id || "";
     if (!zoneId) {
-      console.error(`ERROR: zone ${domain} not found. Add site to Cloudflare first.`);
+      console.error(`ERROR: zone ${domain} not found.`);
       process.exit(1);
     }
     writeEnvVar(ENV_FILE, "CF_ZONE_ID", zoneId);
     console.log(`    CF_ZONE_ID=${zoneId} (saved)`);
-  } else {
-    console.log(`    CF_ZONE_ID=${zoneId} (from .env)`);
   }
 
-  // 6. Create or reuse tunnel
-  const tunnelName = env.CF_TUNNEL_NAME || `${domain}-tunnel`;
-  let tunnelId = env.CF_TUNNEL_ID || "";
-
-  if (!tunnelId) {
+  // Tunnel
+  if (!env.CF_TUNNEL_ID) {
     console.log(`\n==> Creating tunnel '${tunnelName}'...`);
     const secret = execSync("openssl rand -base64 32").toString().trim();
     try {
       const createResp = await cf("POST", `/accounts/${accountId}/cfd_tunnel`, {
-        name: tunnelName,
-        tunnel_secret: secret,
-        config_src: "cloudflare",
+        name: tunnelName, tunnel_secret: secret, config_src: "cloudflare",
       }, authHeaders);
       tunnelId = createResp.result.id;
       console.log(`    Created: ${tunnelId}`);
     } catch {
-      // Tunnel name exists — look up existing
       console.log(`    Tunnel '${tunnelName}' may already exist, looking up...`);
       const listResp = await cf("GET", `/accounts/${accountId}/cfd_tunnel?name=${encodeURIComponent(tunnelName)}&is_deleted=false`, null, authHeaders);
       tunnelId = listResp.result?.[0]?.id || "";
-      if (!tunnelId) {
-        console.error("ERROR: cannot create tunnel and cannot find existing one.");
-        process.exit(1);
-      }
+      if (!tunnelId) { console.error("ERROR: cannot create or find tunnel."); process.exit(1); }
       console.log(`    Found existing: ${tunnelId}`);
     }
     writeEnvVar(ENV_FILE, "CF_TUNNEL_NAME", tunnelName);
     writeEnvVar(ENV_FILE, "CF_TUNNEL_ID", tunnelId);
-  } else {
-    console.log(`\n==> Using existing tunnel: ${tunnelId}`);
   }
 
-  // 7. Get tunnel token
-  let tunnelToken = env.CF_TUNNEL_TOKEN || "";
-  if (!tunnelToken) {
+  // Token
+  if (!env.CF_TUNNEL_TOKEN) {
     console.log(`\n==> Fetching tunnel token...`);
     const tokenResp = await cf("GET", `/accounts/${accountId}/cfd_tunnel/${tunnelId}/token`, null, authHeaders);
     tunnelToken = tokenResp.result;
     writeEnvVar(ENV_FILE, "CF_TUNNEL_TOKEN", tunnelToken);
-    console.log(`    Token saved to CF_TUNNEL_TOKEN`);
-  } else {
-    console.log(`\n==> Using existing token (from .env)`);
+    console.log(`    Token saved`);
   }
 
-  // 8. Configure ingress from hostnames.json
-  let hostnames = ["auth", "files", "ttyd"];
-  let serviceUrl = "http://caddy:80";
-  let catchAll = "http_status:404";
-  if (existsSync(HOSTNAMES_FILE)) {
-    const cfg = JSON.parse(readFileSync(HOSTNAMES_FILE, "utf8"));
-    if (cfg.hostnames?.length) hostnames = cfg.hostnames;
-    if (cfg.service_url) serviceUrl = cfg.service_url;
-    if (cfg.catch_all) catchAll = cfg.catch_all;
-  }
-  const fqdns = hostnames.map((h) => `${h}.${domain}`);
-
-  console.log(`\n==> Configuring ingress (${fqdns.length} hostnames)...`);
-  const ingress = [
-    ...fqdns.map((h) => ({ hostname: h, service: serviceUrl })),
-    { service: catchAll },
-  ];
-  await cf("PUT", `/accounts/${accountId}/cfd_tunnel/${tunnelId}/configurations`, {
-    config: { ingress },
-  }, authHeaders);
+  // Ingress
+  console.log(`\n==> Configuring ingress...`);
+  const ingress = [...fqdns.map((h) => ({ hostname: h, service: serviceUrl })), { service: catchAll }];
+  await cf("PUT", `/accounts/${accountId}/cfd_tunnel/${tunnelId}/configurations`, { config: { ingress } }, authHeaders);
   for (const h of fqdns) console.log(`    ${h} -> ${serviceUrl}`);
 
-  // 9. Create/update DNS CNAME records
+  // DNS
   const target = `${tunnelId}.cfargotunnel.com`;
   console.log(`\n==> Creating DNS CNAME records...`);
   for (const h of fqdns) {
@@ -224,7 +271,7 @@ async function main() {
     }
   }
 
-  // 10. Summary
+  // Done
   console.log(`
 ================================================================
 DONE. Values saved to .env:
@@ -234,15 +281,8 @@ DONE. Values saved to .env:
   CF_TUNNEL_ID=${tunnelId}
   CF_TUNNEL_TOKEN=${tunnelToken.slice(0, 20)}...
 
-Hostnames configured:
-${fqdns.map((h) => `  ${h} -> ${serviceUrl}`).join("\n")}
-
-Next steps:
-  docker compose up -d    # COMPOSE_PROFILES=core (or full)
+Next: docker compose up -d  (COMPOSE_PROFILES=core or full)
 ================================================================`);
 }
 
-main().catch((e) => {
-  console.error("FATAL:", e.message);
-  process.exit(1);
-});
+main().catch((e) => { console.error("FATAL:", e.message); process.exit(1); });

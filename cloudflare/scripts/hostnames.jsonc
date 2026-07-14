@@ -1,0 +1,15 @@
+{
+  // Subdomains sẽ tạo cho {hostname}.{DOMAIN}
+  // Thêm/bớt tùy nhu cầu. Mỗi entry → 1 CNAME record + ingress rule.
+  "hostnames": [
+    "auth",   // Tinyauth login page
+    "files",  // File server (tương lai)
+    "ttyd"    // Terminal web (tương lai)
+  ],
+
+  // Service URL mà tất cả hostname trỏ về
+  "service_url": "http://caddy:80",
+
+  // Catch-all rule (ingress cuối cùng, không match hostname nào)
+  "catch_all": "http_status:404"
+}

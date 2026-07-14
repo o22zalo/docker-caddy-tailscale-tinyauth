@@ -18,6 +18,7 @@
     "ts-status": "bash tailscale/scripts/status.sh"
   },
   "devDependencies": {
-    "bcryptjs": "^2.4.3"
+    "bcryptjs": "^2.4.3",
+    "jsonc-parser": "^3.3.1"
   }
 }

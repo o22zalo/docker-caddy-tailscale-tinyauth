@@ -1,0 +1,11 @@
+{
+  // Known stack services (always attempt to collect logs).
+  // Extra services discovered from `docker compose config --services` are merged.
+  "known_services": [
+    "caddy",
+    "tinyauth",
+    "whoami",
+    "cloudflared",
+    "tailscale"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  // Compose files used to compute Docker image cache key.
+  // Script reads these to discover pinned image tags.
+  "compose_yamls": [
+    "caddy/caddy.yml",
+    "cloudflare/cloudflare.yml",
+    "tinyauth/tinyauth.yml",
+    "whoami/whoami.yml",
+    "tailscale/tailscale.yml",
+    "docker-compose.ci.yml"
+  ]
+}

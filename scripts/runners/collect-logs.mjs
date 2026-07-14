@@ -3,20 +3,39 @@
 // CI: collect per-service logs, inspect, and manifest into ci-logs/.
 //
 // Env vars: MODE, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_SHA, GITHUB_REF, GITHUB_STEP_SUMMARY.
+// Flags:
+//   --dry-run   Show what would be collected, no file writes
+//   --silent    Suppress output
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "jsonc-parser";
+
+const args = process.argv.slice(2);
+const DRY_RUN = args.includes("--dry-run");
+const SILENT = args.includes("--silent");
+const log = (...a) => { if (!SILENT) console.log(...a); };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
 const LOG_DIR = resolve(ROOT, "ci-logs");
 const MODE = process.env.MODE || "unknown";
 const GITHUB_STEP_SUMMARY = process.env.GITHUB_STEP_SUMMARY;
+const CONFIG_FILE = resolve(__dirname, "collect-logs-config.jsonc");
+
+function loadConfig() {
+  const defaults = { known_services: ["caddy", "tinyauth", "whoami", "cloudflared", "tailscale"] };
+  if (!existsSync(CONFIG_FILE)) return defaults;
+  return { ...defaults, ...parse(readFileSync(CONFIG_FILE, "utf8")) };
+}
+
+const config = loadConfig();
 
 process.chdir(ROOT);
 
 function run(cmd) {
+  if (DRY_RUN) return "";
   try {
     return execSync(cmd, { cwd: ROOT, stdio: ["pipe", "pipe", "pipe"] }).toString();
   } catch (e) {
@@ -25,11 +44,24 @@ function run(cmd) {
 }
 
 function sh(cmd) {
+  if (DRY_RUN) return "";
   try {
     return execSync(cmd, { cwd: ROOT, stdio: ["pipe", "pipe", "pipe"] }).toString().trim();
   } catch {
     return "";
   }
+}
+
+// Discover services
+const extra = sh("docker compose config --services").split("\n").filter(Boolean);
+const services = [...new Set([...config.known_services, ...extra])];
+
+if (DRY_RUN) {
+  log(`[DRY RUN] Would collect logs into ${LOG_DIR}/`);
+  log(`[DRY RUN] Services: ${services.join(", ")}`);
+  log(`[DRY RUN] Files: compose-ps.txt, compose-config.yml, all-services.log,`);
+  log(`  public-url.txt, MANIFEST.txt, services/<svc>.log, inspect/<svc>.json`);
+  process.exit(0);
 }
 
 mkdirSync(`${LOG_DIR}/services`, { recursive: true });
@@ -52,16 +84,11 @@ if (existsSync(resolve(ROOT, "public-url.txt"))) {
 // All services combined log
 writeFileSync(`${LOG_DIR}/all-services.log`, run("docker compose logs --no-color --timestamps"));
 
-// Discover services
-const KNOWN = ["caddy", "tinyauth", "whoami", "cloudflared", "tailscale"];
-const extra = sh("docker compose config --services").split("\n").filter(Boolean);
-const services = [...new Set([...KNOWN, ...extra])];
-
 // Per-service logs + inspect
 for (const svc of services) {
-  console.log(`Collecting logs for: ${svc}`);
-  const log = run(`docker compose logs --no-color --timestamps ${svc}`);
-  writeFileSync(`${LOG_DIR}/services/${svc}.log`, log || "(no logs or service not in this run)\n");
+  log(`Collecting logs for: ${svc}`);
+  const svcLog = run(`docker compose logs --no-color --timestamps ${svc}`);
+  writeFileSync(`${LOG_DIR}/services/${svc}.log`, svcLog || "(no logs or service not in this run)\n");
 
   const cid = sh(`docker compose ps -aq ${svc} | head -1`);
   if (cid) {
@@ -88,10 +115,9 @@ const manifest = [
 ].join("\n");
 writeFileSync(`${LOG_DIR}/MANIFEST.txt`, manifest);
 
-// Step summary
 if (GITHUB_STEP_SUMMARY) {
   const summary = `## Collected log files\n\n\`\`\`\n${files}\n\`\`\`\n`;
   execSync(`cat >> "${GITHUB_STEP_SUMMARY}"`, { input: summary });
 }
 
-console.log(`Collected ${services.length} service logs into ci-logs/`);
+log(`Collected ${services.length} service logs into ci-logs/`);

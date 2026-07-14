@@ -2,31 +2,53 @@
 // scripts/runners/cache-docker-build-github.mjs
 // GitHub Actions Docker image cache helper.
 //
-// Usage in workflow:
-//   node scripts/runners/cache-docker-build-github.mjs key     # print cache key
-//   node scripts/runners/cache-docker-build-github.mjs restore # load images from tar
-//   node scripts/runners/cache-docker-build-github.mjs save    # save images to tar
+// Usage:
+//   node cache-docker-build-github.mjs <key|env|restore|save> [--dry-run] [--silent]
 //
-// Reads compose YAMLs to discover pinned image tags, uses tar file
-// at TAR_PATH for docker save/load.
+// Subcommands:
+//   key      Print cache key
+//   env      Write DOCKER_CACHE_KEY + DOCKER_CACHE_PATH to GITHUB_ENV
+//   restore  Load images from tar (after actions/cache restore)
+//   save     Save images to tar (after compose up, on cache miss)
+//
+// Flags:
+//   --dry-run   Show what would be done, no docker/env writes
+//   --silent    Suppress output
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync, appendFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parse } from "jsonc-parser";
+
+const allArgs = process.argv.slice(2);
+const DRY_RUN = allArgs.includes("--dry-run");
+const SILENT = allArgs.includes("--silent");
+const log = (...a) => { if (!SILENT) console.log(...a); };
+const action = allArgs.find((a) => !a.startsWith("--"));
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
-
 const TAR_PATH = process.env.DOCKER_CACHE_PATH || "/tmp/docker-images-cache.tar";
-const COMPOSE_YAMLS = [
-  "caddy/caddy.yml",
-  "cloudflare/cloudflare.yml",
-  "tinyauth/tinyauth.yml",
-  "whoami/whoami.yml",
-  "tailscale/tailscale.yml",
-  "docker-compose.ci.yml",
-];
+const CONFIG_FILE = resolve(__dirname, "cache-config.jsonc");
+
+function loadConfig() {
+  const defaults = {
+    compose_yamls: [
+      "caddy/caddy.yml",
+      "cloudflare/cloudflare.yml",
+      "tinyauth/tinyauth.yml",
+      "whoami/whoami.yml",
+      "tailscale/tailscale.yml",
+      "docker-compose.ci.yml",
+    ],
+  };
+  if (!existsSync(CONFIG_FILE)) return defaults;
+  return { ...defaults, ...parse(readFileSync(CONFIG_FILE, "utf8")) };
+}
+
+const config = loadConfig();
+const COMPOSE_YAMLS = config.compose_yamls;
 
 function cacheKey() {
   const hash = createHash("sha256");
@@ -51,54 +73,50 @@ function imageList() {
 }
 
 function run(cmd) {
-  execSync(cmd, { stdio: "inherit" });
+  if (DRY_RUN) { log(`[DRY RUN] ${cmd}`); return; }
+  execSync(cmd, { stdio: SILENT ? "ignore" : "inherit" });
 }
 
 const key = cacheKey();
 const images = imageList();
-const action = process.argv[2];
 
 if (!action || !["key", "env", "restore", "save"].includes(action)) {
-  console.error("Usage: node cache-docker-build-github.mjs <key|env|restore|save>");
+  console.error("Usage: node cache-docker-build-github.mjs <key|env|restore|save> [--dry-run] [--silent]");
   process.exit(1);
 }
 
 if (action === "key") {
-  console.log(key);
+  log(key);
   process.exit(0);
 }
 
-// env: write DOCKER_CACHE_KEY + DOCKER_CACHE_PATH to GITHUB_ENV (for actions/cache step)
 if (action === "env") {
   const envFile = process.env.GITHUB_ENV;
-  if (envFile) {
+  if (envFile && !DRY_RUN) {
     appendFileSync(envFile, `DOCKER_CACHE_KEY=${key}\nDOCKER_CACHE_PATH=${TAR_PATH}\n`);
   }
-  console.log(`DOCKER_CACHE_KEY=${key}`);
-  console.log(`DOCKER_CACHE_PATH=${TAR_PATH}`);
+  log(`DOCKER_CACHE_KEY=${key}`);
+  log(`DOCKER_CACHE_PATH=${TAR_PATH}`);
   process.exit(0);
 }
 
-// restore: load images from tar (called AFTER actions/cache restores the tar)
 if (action === "restore") {
-  console.log(`Images to cache: ${images.join(", ")}`);
+  log(`Images to cache: ${images.join(", ")}`);
   if (existsSync(TAR_PATH) && statSync(TAR_PATH).size > 0) {
-    console.log("Loading cached images...");
+    log("Loading cached images...");
     run(`docker load -i ${TAR_PATH}`);
-    console.log("Cache loaded.");
+    log("Cache loaded.");
   } else {
-    console.log("No cache found — images will be pulled fresh.");
+    log("No cache found — images will be pulled fresh.");
   }
   process.exit(0);
 }
 
-// save: save images to tar (called AFTER compose up, only on cache miss)
 if (action === "save") {
   if (existsSync(TAR_PATH) && statSync(TAR_PATH).size > 0) {
-    console.log("Cache already exists — skipping save.");
+    log("Cache already exists — skipping save.");
     process.exit(0);
   }
-  // Only save images that actually exist locally (profile-gated services may not be pulled)
   const local = images.filter((img) => {
     try {
       execSync(`docker image inspect ${img}`, { stdio: "ignore" });
@@ -108,11 +126,13 @@ if (action === "save") {
     }
   });
   if (local.length === 0) {
-    console.log("No local images to save.");
+    log("No local images to save.");
     process.exit(0);
   }
-  console.log(`Saving ${local.length}/${images.length} local images to cache...`);
+  log(`Saving ${local.length}/${images.length} local images to cache...`);
   run(`docker save ${local.join(" ")} -o ${TAR_PATH}`);
-  const size = statSync(TAR_PATH).size;
-  console.log(`Saved ${(size / 1024 / 1024).toFixed(1)}MB.`);
+  if (!DRY_RUN && existsSync(TAR_PATH)) {
+    const size = statSync(TAR_PATH).size;
+    log(`Saved ${(size / 1024 / 1024).toFixed(1)}MB.`);
+  }
 }

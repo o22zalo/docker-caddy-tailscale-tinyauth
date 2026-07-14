@@ -81,6 +81,56 @@ Exceptions (OK to keep inline):
 - ≤ 4 lines of trivial shell (e.g. `echo`, `cat`, single `docker compose` call).
 - GitHub Actions expressions (`${{ ... }}`) — these are YAML, not shell.
 
+### Script flags — `--dry-run` and `--silent`
+
+Every `.mjs` script must support these flags:
+
+| Flag | Meaning |
+|------|---------|
+| `--dry-run` | Show what would be done — no API calls, no file writes, no docker commands |
+| `--silent` | Suppress console output (errors still print to stderr) |
+
+Rules:
+- Parse flags from `process.argv.slice(2)` at the top of the script.
+- Use `const log = (...a) => { if (!SILENT) console.log(...a); }` for output.
+- Guard all side effects (file writes, API calls, docker commands) with `if (DRY_RUN) { log("[DRY RUN] ..."); return; }`.
+- `--dry-run` implies no writes to `.env`, `GITHUB_ENV`, or any file.
+- `--silent` suppresses stdout only; `console.error` always prints.
+
+### Script config — extract hardcoded values to `.jsonc`
+
+**Do not** hardcode lists, paths, or config values inside `.mjs` scripts. Extract to a `.jsonc` file in the same directory.
+
+| Where | Rule | Why |
+|-------|------|-----|
+| Runners (`scripts/runners/`) | Config → `<name>-config.jsonc` in same dir | Centralized, editable without touching code |
+| Service scripts (`<service>/scripts/`) | Config → `<name>.jsonc` in same dir | Same |
+| Fallback | Script must work if config file missing — use sensible defaults | Backward compatible |
+
+Example:
+
+```
+scripts/runners/
+  cache-docker-build-github.mjs
+  cache-config.jsonc             ← compose_yamls list
+  collect-logs.mjs
+  collect-logs-config.jsonc      ← known_services list
+```
+
+Config loading pattern:
+
+```js
+import { parse } from "jsonc-parser";
+
+const CONFIG_FILE = resolve(__dirname, "my-config.jsonc");
+function loadConfig() {
+  const defaults = { key: ["value1", "value2"] };
+  if (!existsSync(CONFIG_FILE)) return defaults;
+  return { ...defaults, ...parse(readFileSync(CONFIG_FILE, "utf8")) };
+}
+const config = loadConfig();
+```
+
 ## Compose rules
 
 1. Root `docker-compose.yml` uses **`include`** to pull every service YAML.
