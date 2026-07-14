@@ -56,14 +56,30 @@ README.md                # Human-facing docs
 |------|----------|----------|
 | Service-only | `<service>/scripts/*.sh` | `tinyauth/scripts/generate-user.sh`, `cloudflare/scripts/extract-tunnel-url.sh`, `tailscale/scripts/status.sh`, `caddy/scripts/dump-config.sh` |
 | Stack-wide | `scripts/*.sh` | `scripts/up.sh`, `scripts/wait-and-test.sh` |
+| CI / runner | `scripts/runners/*.mjs` | `scripts/runners/setup-env.mjs`, `scripts/runners/start-stack.mjs`, `scripts/runners/collect-logs.mjs`, `scripts/runners/cache-docker-build-github.mjs` |
 
 Rules:
 
-- New helper for a single service → that service’s `scripts/`.
+- New helper for a single service → that service's `scripts/`.
 - Script that starts/tests/tears down the **whole stack** → root `scripts/`.
+- Script that runs **only in CI / GitHub Actions runner** → `scripts/runners/`.
 - Stack scripts may **call** service scripts (e.g. `wait-and-test.sh` → `cloudflare/scripts/extract-tunnel-url.sh`).
 - Prefer `#!/usr/bin/env bash`, `set -euo pipefail`, and resolve repo root relative to the script path.
 - Keep scripts executable in CI (`chmod +x` on `scripts` and `*/scripts`).
+
+### Inline code in YAML — prefer scripts
+
+**Do not** put multi-step or branching logic inline in Compose YAML or GitHub Actions workflow YAML. Extract to a script file instead.
+
+| Where | Rule | Why |
+|-------|------|-----|
+| CI workflow (`test.yml`) | ≥ 5 lines of bash → move to `scripts/runners/*.mjs` | Testable, reviewable, reusable |
+| Compose YAML | No inline shell; use labels/env/scripts | Compose is declarative; logic belongs in scripts |
+| Script language | `.mjs` (Node.js ES module) for CI runners; `.sh` for service/stack helpers | GitHub Actions runners have Node.js; `.mjs` is cross-platform, testable, no extra deps |
+
+Exceptions (OK to keep inline):
+- ≤ 4 lines of trivial shell (e.g. `echo`, `cat`, single `docker compose` call).
+- GitHub Actions expressions (`${{ ... }}`) — these are YAML, not shell.
 
 ## Compose rules
 
@@ -266,11 +282,12 @@ Artifact name pattern: `stack-logs-<run_id>-<run_attempt>` (retention 14 days).
 - Do not dump service-specific scripts into root `scripts/`.
 - Do not commit `.env` or real `TUNNEL_TOKEN` / `TS_AUTHKEY`.
 - Do not open host ports as the primary public path when Tunnel is the design; Tunnel is the outside entry.
-- Do not break the “reachable from outside” CI check without replacing it.
+- Do not break the "reachable from outside" CI check without replacing it.
 - Do not reintroduce `environment: KEY: ${KEY:-}` for optional keys (empty-string injection).
 - Do not paste catalog files into root `.env` with blank `KEY=` lines.
 - Do not use `curl -L` in stack smoke tests (auth redirects break the check).
 - Do not leave `tinyauth_forwarder` on whoami in quick-tunnel CI (catch-all must be public).
+- Do not inline multi-step bash logic in Compose YAML or CI workflow YAML — extract to a script.
 
 ## Common commands
 
@@ -330,7 +347,8 @@ vs quick modes in AGENTS.md and README.
 - [ ] Both paths still valid: **named** (`docker compose up`) and **quick** (`-f docker-compose.ci.yml`)
 - [ ] `wait-and-test.sh` still accepts 302/401 without following redirects
 - [ ] Service has `profiles` (own name + `core` and/or `full` as appropriate)
-- [ ] Scripts live in the correct directory (service vs stack-wide)
+- [ ] Scripts live in the correct directory (service vs stack-wide vs runners)
+- [ ] No multi-step inline bash in YAML — extracted to scripts
 - [ ] Root `include` list updated if services changed
 - [ ] Env vars documented; Tinyauth keys valid for v5
 - [ ] Root `.env.example` / `.env.ci` set `COMPOSE_PROFILES` appropriately

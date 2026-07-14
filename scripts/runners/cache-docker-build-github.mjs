@@ -98,12 +98,21 @@ if (action === "save") {
     console.log("Cache already exists — skipping save.");
     process.exit(0);
   }
-  if (images.length === 0) {
-    console.log("No images found in compose files.");
+  // Only save images that actually exist locally (profile-gated services may not be pulled)
+  const local = images.filter((img) => {
+    try {
+      execSync(`docker image inspect ${img}`, { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (local.length === 0) {
+    console.log("No local images to save.");
     process.exit(0);
   }
-  console.log(`Saving ${images.length} images to cache...`);
-  run(`docker save ${images.join(" ")} -o ${TAR_PATH}`);
+  console.log(`Saving ${local.length}/${images.length} local images to cache...`);
+  run(`docker save ${local.join(" ")} -o ${TAR_PATH}`);
   const size = statSync(TAR_PATH).size;
   console.log(`Saved ${(size / 1024 / 1024).toFixed(1)}MB.`);
 }
