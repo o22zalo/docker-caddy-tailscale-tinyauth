@@ -1,4 +1,4 @@
-.PHONY: up up-ci up-core up-full up-ts down logs ps config profiles test-ci user tunnel-url ts-status
+.PHONY: up up-ci up-core up-full up-ts down logs ps config profiles test-ci user provision tunnel-url ts-status
 
 # Uses COMPOSE_PROFILES from .env (default in .env.example: core)
 up:
@@ -43,6 +43,9 @@ test-ci: up-ci
 
 user:
 	node tinyauth/scripts/generate-user.mjs
+
+provision:
+	node cloudflare/scripts/provision-tunnel.mjs
 
 tunnel-url:
 	bash cloudflare/scripts/extract-tunnel-url.sh

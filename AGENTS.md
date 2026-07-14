@@ -54,7 +54,7 @@ README.md                # Human-facing docs
 
 | Kind | Location | Examples |
 |------|----------|----------|
-| Service-only | `<service>/scripts/*` | `tinyauth/scripts/generate-user.mjs`, `cloudflare/scripts/extract-tunnel-url.sh`, `tailscale/scripts/status.sh`, `caddy/scripts/dump-config.sh` |
+| Service-only | `<service>/scripts/*` | `tinyauth/scripts/generate-user.mjs`, `cloudflare/scripts/provision-tunnel.mjs`, `cloudflare/scripts/extract-tunnel-url.sh`, `tailscale/scripts/status.sh`, `caddy/scripts/dump-config.sh` |
 | Stack-wide | `scripts/*.sh` | `scripts/up.sh`, `scripts/wait-and-test.sh` |
 | CI / runner | `scripts/runners/*.mjs` | `scripts/runners/setup-env.mjs`, `scripts/runners/start-stack.mjs`, `scripts/runners/collect-logs.mjs`, `scripts/runners/cache-docker-build-github.mjs` |
 

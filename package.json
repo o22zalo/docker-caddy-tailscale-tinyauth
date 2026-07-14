@@ -14,6 +14,7 @@
     "ps": "docker compose ps",
     "config": "docker compose config",
     "tunnel-url": "bash cloudflare/scripts/extract-tunnel-url.sh",
+    "provision": "node cloudflare/scripts/provision-tunnel.mjs",
     "ts-status": "bash tailscale/scripts/status.sh"
   },
   "devDependencies": {
