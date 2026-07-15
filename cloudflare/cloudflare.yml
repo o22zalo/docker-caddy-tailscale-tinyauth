@@ -38,11 +38,12 @@ services:
         required: false
     environment:
       # Only pass token when non-empty so "unset" vs "" stays clean for quick mode.
-      # CI file forces CF_TUNNEL_TOKEN: "" + command --url.
-      CF_TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN:-}
-      TUNNEL_LOGLEVEL: ${TUNNEL_LOGLEVEL:-info}
-      TUNNEL_TRANSPORT_PROTOCOL: ${TUNNEL_TRANSPORT_PROTOCOL:-auto}
-      TUNNEL_EDGE_IP_VERSION: ${TUNNEL_EDGE_IP_VERSION:-4}
+      # CI file forces TUNNEL_TOKEN: "" + command --url.
+      # Host .env uses CF_TUNNEL_*; container receives TUNNEL_* (cloudflared binary).
+      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN:-}
+      TUNNEL_LOGLEVEL: ${CF_TUNNEL_LOGLEVEL:-info}
+      TUNNEL_TRANSPORT_PROTOCOL: ${CF_TUNNEL_TRANSPORT_PROTOCOL:-auto}
+      TUNNEL_EDGE_IP_VERSION: ${CF_TUNNEL_EDGE_IP_VERSION:-4}
       NO_AUTOUPDATE: ${NO_AUTOUPDATE:-true}
     networks:
       - proxy

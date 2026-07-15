@@ -28,8 +28,8 @@ services:
       - http://caddy:80
     environment:
       # Quick tunnel must not see a token (empty string can still confuse some versions)
-      CF_TUNNEL_TOKEN: ""
-      CF_TUNNEL_TOKEN_FILE: ""
+      TUNNEL_TOKEN: ""
+      TUNNEL_TOKEN_FILE: ""
       TUNNEL_TRANSPORT_PROTOCOL: http2
       TUNNEL_EDGE_IP_VERSION: "4"
       TUNNEL_LOGLEVEL: info
