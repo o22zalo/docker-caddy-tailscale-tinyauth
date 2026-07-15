@@ -44,9 +44,28 @@ Trong Supabase Dashboard:
 https://<project-ref>.storage.supabase.co/storage/v1/s3
 ```
 
+## Bucket và key
+
+`LITESTREAM_<index>_BUCKET` chỉ là tên bucket, không chứa folder/path.
+
+Đúng:
+
+```env
+LITESTREAM_0_BUCKET=hoahien7281
+LITESTREAM_0_KEY=data-tiny-auth/tinyauth.db
+```
+
+Sai:
+
+```env
+LITESTREAM_0_BUCKET=hoahien7281/data-tiny-auth
+```
+
+Folder/path luôn đặt ở `LITESTREAM_<index>_KEY`.
+
 ## Env tối thiểu
 
-Chỉ cần `BUCKET`; nếu không set `KEY`, script tự dùng:
+Nếu không set `KEY`, script tự dùng:
 
 ```text
 <service>/<db filename>
@@ -63,6 +82,7 @@ LITESTREAM_IMAGE=litestream/litestream:0.3.13
 LITESTREAM_0_SERVICE=tinyauth
 LITESTREAM_0_PATH=/data/tinyauth/tinyauth.db
 LITESTREAM_0_BUCKET=your-bucket
+LITESTREAM_0_KEY=tinyauth/tinyauth.db
 LITESTREAM_0_ACCESS_KEY_ID=...
 LITESTREAM_0_SECRET_ACCESS_KEY=...
 LITESTREAM_0_ENDPOINT=https://project-ref.storage.supabase.co/storage/v1/s3
