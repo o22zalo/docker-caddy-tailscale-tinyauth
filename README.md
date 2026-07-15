@@ -165,7 +165,8 @@ its SQLite data under `${DOCKER_VOLUME_DATA}/litestream/<service>/`.
 ```env
 LITESTREAM_0_SERVICE=tinyauth
 LITESTREAM_0_PATH=/data/tinyauth/tinyauth.db
-LITESTREAM_0_URL=s3://bucket/path/tinyauth.db
+LITESTREAM_0_BUCKET=bucket
+# LITESTREAM_0_KEY=tinyauth/tinyauth.db
 LITESTREAM_0_ACCESS_KEY_ID=...
 LITESTREAM_0_SECRET_ACCESS_KEY=...
 LITESTREAM_0_ENDPOINT=https://project-ref.supabase.co/storage/v1/s3

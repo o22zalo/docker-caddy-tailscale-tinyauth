@@ -31,7 +31,8 @@ function entries(env) {
     const prefix = `LITESTREAM_${index}_`;
     const service = env[`${prefix}SERVICE`];
     const path = env[`${prefix}PATH`] || `/data/${service}/${service}.db`;
-    const url = env[`${prefix}URL`] || (env[`${prefix}BUCKET`] && env[`${prefix}KEY`] ? `s3://${env[`${prefix}BUCKET`]}/${env[`${prefix}KEY`]}` : "");
+    const key = env[`${prefix}KEY`] || `${service}/${path.split("/").pop()}`;
+    const url = env[`${prefix}URL`] || (env[`${prefix}BUCKET`] ? `s3://${env[`${prefix}BUCKET`]}/${key}` : "");
     return { index, service, path, url };
   }).filter((entry) => entry.service && entry.url);
 }
