@@ -25,6 +25,7 @@ services:
       context: ..
       dockerfile: rclone/Dockerfile
     image: proxy-stack-rclone:local
+    pull_policy: build
     container_name: ${RCLONE_CONTAINER_NAME:-rclone}
     restart: unless-stopped
     env_file:
