@@ -54,7 +54,7 @@ function hasLitestreamConfig(envFile) {
 
 function ensureProfile(name, envFile) {
   const current = process.env.COMPOSE_PROFILES || envGet(envFile, "COMPOSE_PROFILES") || "";
-  if (current.split(/[,\s]+/).includes(name) || current.split(/[,\s]+/).includes("full")) return;
+  if (current.split(/[,\s]+/).includes(name)) return;
   process.env.COMPOSE_PROFILES = current ? `${current},${name}` : name;
   log(`Ensuring ${name} profile is enabled`);
 }
