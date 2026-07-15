@@ -49,6 +49,11 @@ function entries(env) {
   }).filter((entry) => entry.service && entry.url);
 }
 
+function containerName(items) {
+  if (items.length === 0) return "litestream";
+  return `litestream-${items[0].index}-${items[0].service}`.replace(/[^a-zA-Z0-9_.-]/g, "-");
+}
+
 function renderConfig(items) {
   const lines = ["dbs:"];
   if (items.length === 0) {
@@ -83,4 +88,5 @@ if (DRY_RUN) {
 }
 
 log(`Litestream config: ${items.length} db(s), ${runtimeConfig}`);
+log(`Litestream container: ${containerName(items)}`);
 if (items.length > 0) log("Litestream profile required: litestream");

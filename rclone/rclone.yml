@@ -1,0 +1,46 @@
+# =============================================================================
+# rclone/rclone.yml — file/folder sync sidecar
+# =============================================================================
+#
+# Purpose:
+#   Pull configured remote files/folders before apps start, then periodically
+#   push local changes back to remotes.
+#
+# Docs:
+#   - Rclone: https://rclone.org/
+#   - Config file: https://rclone.org/docs/#config-config-file
+#   - Copy: https://rclone.org/commands/rclone_copy/
+#   - Bisync: https://rclone.org/bisync/
+#
+# Env/catalog:
+#   - rclone/.env.example
+#   - Indexed vars: RCLONE_<index>_*
+#
+# Profiles: rclone
+# =============================================================================
+
+services:
+  rclone:
+    build:
+      context: ..
+      dockerfile: rclone/Dockerfile
+    image: proxy-stack-rclone:local
+    container_name: ${RCLONE_CONTAINER_NAME:-rclone}
+    restart: unless-stopped
+    env_file:
+      - path: ../.env
+        required: false
+      - path: .env
+        required: false
+    command:
+      - node
+      - /app/rclone/scripts/sync-loop.mjs
+    volumes:
+      - ..:/workspace
+      - ${DOCKER_VOLUME_DATA_ABS:-../ci-data}:/data
+      - ${DOCKER_VOLUME_RUNTIME_ABS:-../ci-runtime}:/runtime
+      - ${DOCKER_VOLUME_RUNTIME_ABS:-../ci-runtime}/rclone:/config/rclone
+    networks:
+      - proxy
+    profiles:
+      - rclone

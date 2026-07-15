@@ -10,6 +10,12 @@ Litestream restore SQLite DB trước khi app start, rồi replicate thay đổi
 4. Nếu S3 chưa có backup, restore bỏ qua để app tự tạo DB.
 5. Khi container chạy, service `litestream` replicate DB lên S3.
 
+Helper đặt container name từ block đầu tiên:
+
+```text
+LITESTREAM_0_SERVICE=tinyauth -> litestream-0-tinyauth
+```
+
 ## Storage layout
 
 Mọi DB dùng Litestream phải nằm dưới:
@@ -143,6 +149,10 @@ node scripts/up.mjs
 
 Helper sẽ auto-enable profile `litestream` khi thấy `LITESTREAM_<index>_SERVICE`.
 Compose service files mount via internal absolute vars derived by the helpers, so data lands at repo-root `./ci-data`, not under each service folder.
+
+Không cần thêm `litestream` vào `COMPOSE_PROFILES` khi dùng `node scripts/up.mjs`
+hoặc CI. Nếu chạy `docker compose up` trực tiếp, Compose không tự suy luận được
+profile fallback này.
 
 ## Lỗi thường gặp
 

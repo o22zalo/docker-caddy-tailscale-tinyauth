@@ -12,6 +12,8 @@
     "webssh/Dockerfile",
     "tailscale/tailscale.yml",
     "litestream/litestream.yml",
+    "rclone/rclone.yml",
+    "rclone/Dockerfile",
     "docker-compose.ci.yml",
   ],
 }

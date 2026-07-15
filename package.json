@@ -16,6 +16,7 @@
     "tunnel-url": "node cloudflare/scripts/extract-tunnel-url.mjs",
     "litestream:config": "node litestream/scripts/generate-config.mjs",
     "litestream:restore": "node litestream/scripts/restore.mjs",
+    "rclone:pull": "node rclone/scripts/pull.mjs",
     "provision": "node cloudflare/scripts/provision-tunnel.mjs --env .env.dockercaddytailscaletinyauth",
     "ts-status": "node tailscale/scripts/status.mjs",
     "ts-init": "node tailscale/scripts/init.mjs --env .env.dockercaddytailscaletinyauth",

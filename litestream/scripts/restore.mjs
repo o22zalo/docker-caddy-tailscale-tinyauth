@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Restore Litestream DBs before app containers start. Missing remote backups are OK.
-import { execSync } from "node:child_process";
+// Runs all LITESTREAM_<index>_* restores concurrently (independent DBs/buckets).
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,6 +13,8 @@ const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
 const SILENT = args.includes("--silent");
 const envArg = args.indexOf("--env");
+const concurrencyArg = args.indexOf("--concurrency");
+const CONCURRENCY = concurrencyArg >= 0 ? Math.max(1, parseInt(args[concurrencyArg + 1], 10) || 1) : Infinity;
 const log = (...a) => { if (!SILENT) console.log(...a); };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -53,51 +56,93 @@ function redactSecrets(value) {
     .replace(/(AWS_SECRET_ACCESS_KEY=)[^\s]+/gi, "$1[REDACTED]");
 }
 
-const env = { ...parseEnv(ENV), ...process.env };
-const config = loadConfig();
-const dataRoot = resolve(ROOT, env.DOCKER_VOLUME_DATA || dirname(config.data_root), "litestream");
-const runtimeConfig = resolve(ROOT, env.DOCKER_VOLUME_RUNTIME || config.runtime_root, "litestream/litestream.yml");
-const image = env.LITESTREAM_IMAGE || config.image;
-const items = entries(env);
-
-if (items.length === 0) {
-  log("Litestream restore: no LITESTREAM_<index>_SERVICE entries; skip.");
-  process.exit(0);
+// Run a shell command async, capture stdout/stderr, never throw — caller inspects .code.
+function run(cmd) {
+  return new Promise((res) => {
+    const proc = spawn(cmd, { cwd: ROOT, shell: true, stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    proc.stdout.on("data", (d) => { stdout += d.toString(); });
+    proc.stderr.on("data", (d) => { stderr += d.toString(); });
+    proc.on("error", (err) => res({ code: 1, stdout, stderr: `${stderr}\n${err.message}` }));
+    proc.on("close", (code) => res({ code: code ?? 1, stdout, stderr }));
+  });
 }
 
-const docker = DRY_RUN ? { available: true, cmd: "docker" } : detectDocker();
-if (!docker.available) {
-  console.error("ERROR: Docker not found. Cannot run litestream restore.");
-  process.exit(1);
+// Simple concurrency-limited map.
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  async function worker() {
+    while (cursor < items.length) {
+      const i = cursor++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
-if (!DRY_RUN) mkdirSync(dataRoot, { recursive: true });
+async function main() {
+  const env = { ...parseEnv(ENV), ...process.env };
+  const config = loadConfig();
+  const dataRoot = resolve(ROOT, env.DOCKER_VOLUME_DATA || dirname(config.data_root), "litestream");
+  const runtimeConfig = resolve(ROOT, env.DOCKER_VOLUME_RUNTIME || config.runtime_root, "litestream/litestream.yml");
+  const image = env.LITESTREAM_IMAGE || config.image;
+  const items = entries(env);
 
-for (const item of items) {
-  const localPath = resolve(dataRoot, item.path.replace(/^\/data\//, ""));
-  if (!DRY_RUN) mkdirSync(dirname(localPath), { recursive: true });
-  if (existsSync(localPath)) {
-    log(`Litestream restore: ${item.service} local DB exists; skip.`);
-    continue;
+  if (items.length === 0) {
+    log("Litestream restore: no LITESTREAM_<index>_SERVICE entries; skip.");
+    return;
   }
 
-  const cmd = `${docker.cmd} run --rm -v ${shQuote(dataRoot)}:/data -v ${shQuote(runtimeConfig)}:/etc/litestream.yml:ro ${shQuote(image)} restore -if-db-not-exists -if-replica-exists -config /etc/litestream.yml ${shQuote(item.path)}`;
-  if (DRY_RUN) {
-    log(`[DRY RUN] ${cmd}`);
-    continue;
+  const docker = DRY_RUN ? { available: true, cmd: "docker" } : detectDocker();
+  if (!docker.available) {
+    console.error("ERROR: Docker not found. Cannot run litestream restore.");
+    process.exit(1);
   }
 
-  try {
-    const output = execSync(cmd, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] }).toString();
-    if (output.trim()) log(output.trim());
-  } catch (error) {
-    const output = `${error.stdout?.toString() || ""}\n${error.stderr?.toString() || ""}`;
+  if (!DRY_RUN) mkdirSync(dataRoot, { recursive: true });
+
+  log(`Litestream restore: ${items.length} db(s), concurrency=${CONCURRENCY === Infinity ? items.length : CONCURRENCY}`);
+
+  const results = await mapLimit(items, CONCURRENCY, async (item) => {
+    const localPath = resolve(dataRoot, item.path.replace(/^\/data\//, ""));
+    if (!DRY_RUN) mkdirSync(dirname(localPath), { recursive: true });
+    if (existsSync(localPath)) {
+      log(`Litestream restore: ${item.service} local DB exists; skip.`);
+      return { service: item.service, ok: true };
+    }
+
+    const cmd = `${docker.cmd} run --rm -v ${shQuote(dataRoot)}:/data -v ${shQuote(runtimeConfig)}:/etc/litestream.yml:ro ${shQuote(image)} restore -if-db-not-exists -if-replica-exists -config /etc/litestream.yml ${shQuote(item.path)}`;
+    if (DRY_RUN) {
+      log(`[DRY RUN] ${cmd}`);
+      return { service: item.service, ok: true };
+    }
+
+    const { code, stdout, stderr } = await run(cmd);
+    const output = `${stdout}\n${stderr}`;
+
+    if (code === 0) {
+      if (stdout.trim()) log(`[${item.service}] ${stdout.trim()}`);
+      return { service: item.service, ok: true };
+    }
+
     if (isMissingRemote(output)) {
       log(`Litestream restore: ${item.service} has no remote backup yet; app will create DB.`);
-      continue;
+      return { service: item.service, ok: true };
     }
+
     console.error(`Litestream restore failed for ${item.service}.`);
     if (output.trim()) console.error(redactSecrets(output.trim()));
-    process.exit(error.status || 1);
+    return { service: item.service, ok: false, code };
+  });
+
+  const failed = results.filter((r) => !r.ok);
+  if (failed.length > 0) {
+    console.error(`Litestream restore: ${failed.length}/${items.length} service(s) failed: ${failed.map((f) => f.service).join(", ")}`);
+    process.exit(failed[0].code || 1);
   }
 }
+
+main();

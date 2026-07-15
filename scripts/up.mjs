@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // scripts/up.mjs
-// Start compose project according to COMPOSE_PROFILES in .env.
+// Start compose project according to COMPOSE_PROFILES in .env, with fallback
+// profiles auto-added for configured optional services.
 //
 // Usage:
 //   node scripts/up.mjs                       # uses COMPOSE_PROFILES from .env
@@ -17,7 +18,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { detectDocker, dockerCmd } from "./runners/_docker.mjs";
-import { envGet } from "./lib/env-utils.mjs";
+import { envGet, parseEnv } from "./lib/env-utils.mjs";
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
@@ -38,8 +39,21 @@ function run(cmd) {
 }
 
 function hasLitestreamConfig() {
-  return Object.keys(process.env).some((key) => /^LITESTREAM_\d+_SERVICE$/.test(key)) ||
-    (existsSync(ENV) && /^LITESTREAM_\d+_SERVICE=/m.test(readFileSync(ENV, "utf8")));
+  const env = { ...parseEnv(ENV), ...process.env };
+  return Object.keys(env).some((key) => /^LITESTREAM_\d+_SERVICE$/.test(key));
+}
+
+function hasRcloneConfig() {
+  const env = { ...parseEnv(ENV), ...process.env };
+  return Object.keys(env).some((key) => /^RCLONE_\d+_NAME$/.test(key));
+}
+
+function firstIndexedName(prefix, key) {
+  const env = { ...parseEnv(ENV), ...process.env };
+  const indexes = Object.keys(env).map((name) => name.match(new RegExp(`^${prefix}_(\\d+)_${key}$`))?.[1]).filter(Boolean).sort((a, b) => Number(a) - Number(b));
+  if (indexes.length === 0) return "";
+  const index = indexes[0];
+  return `${prefix.toLowerCase()}-${index}-${env[`${prefix}_${index}_${key}`]}`.replace(/[^a-zA-Z0-9_.-]/g, "-");
 }
 
 function ensureProfile(name) {
@@ -90,20 +104,25 @@ if (nonFlagArgs.length > 0) {
 if (envGet(ENV, "TS_AUTHKEY")) {
   const current = process.env.COMPOSE_PROFILES || envGet(ENV, "COMPOSE_PROFILES") || "";
   if (!current.includes("full") && !current.includes("tailscale")) {
-    if (process.env.COMPOSE_PROFILES) {
-      process.env.COMPOSE_PROFILES += ",tailscale";
-    }
-    log("TS_AUTHKEY present → ensuring Tailscale profile is enabled");
+    ensureProfile("tailscale");
   }
 }
 
-if (hasLitestreamConfig()) ensureProfile("litestream");
+if (hasLitestreamConfig()) {
+  ensureProfile("litestream");
+  process.env.LITESTREAM_CONTAINER_NAME = firstIndexedName("LITESTREAM", "SERVICE");
+}
+if (hasRcloneConfig()) {
+  ensureProfile("rclone");
+  process.env.RCLONE_CONTAINER_NAME = firstIndexedName("RCLONE", "NAME");
+}
 process.env.DOCKER_VOLUME_RUNTIME_ABS = resolveVolumeRoot(envGet(ENV, "DOCKER_VOLUME_RUNTIME"), "ci-runtime");
 process.env.DOCKER_VOLUME_DATA_ABS = resolveVolumeRoot(envGet(ENV, "DOCKER_VOLUME_DATA"), "ci-data");
 
 // Start stack
 run(`node litestream/scripts/generate-config.mjs${SILENT ? " --silent" : ""}`);
 run(`node litestream/scripts/restore.mjs${SILENT ? " --silent" : ""}`);
+run(`node rclone/scripts/pull.mjs${SILENT ? " --silent" : ""}`);
 
 if (mode === "ci") {
   log("Starting stack in CI / quick-tunnel mode...");
@@ -116,5 +135,6 @@ if (mode === "ci") {
 run(dockerCmd("compose ps"));
 log("");
 log("Active profiles tip: echo $COMPOSE_PROFILES or check .env");
+if (hasLitestreamConfig() || hasRcloneConfig()) log("Optional profiles were auto-enabled from indexed env blocks.");
 log("Tunnel logs: docker compose logs -f cloudflared");
 log("Tinyauth user: node tinyauth/scripts/generate-user.mjs");

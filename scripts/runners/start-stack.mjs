@@ -11,7 +11,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { detectDocker, dockerCmd } from "./_docker.mjs";
-import { envGet } from "../lib/env-utils.mjs";
+import { envGet, parseEnv } from "../lib/env-utils.mjs";
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
@@ -48,8 +48,21 @@ function redactSecrets(value) {
 }
 
 function hasLitestreamConfig(envFile) {
-  return Object.keys(process.env).some((key) => /^LITESTREAM_\d+_SERVICE$/.test(key)) ||
-    (existsSync(envFile) && /^LITESTREAM_\d+_SERVICE=/m.test(readFileSync(envFile, "utf8")));
+  const env = { ...parseEnv(envFile), ...process.env };
+  return Object.keys(env).some((key) => /^LITESTREAM_\d+_SERVICE$/.test(key));
+}
+
+function hasRcloneConfig(envFile) {
+  const env = { ...parseEnv(envFile), ...process.env };
+  return Object.keys(env).some((key) => /^RCLONE_\d+_NAME$/.test(key));
+}
+
+function firstIndexedName(envFile, prefix, key) {
+  const env = { ...parseEnv(envFile), ...process.env };
+  const indexes = Object.keys(env).map((name) => name.match(new RegExp(`^${prefix}_(\\d+)_${key}$`))?.[1]).filter(Boolean).sort((a, b) => Number(a) - Number(b));
+  if (indexes.length === 0) return "";
+  const index = indexes[0];
+  return `${prefix.toLowerCase()}-${index}-${env[`${prefix}_${index}_${key}`]}`.replace(/[^a-zA-Z0-9_.-]/g, "-");
 }
 
 function ensureProfile(name, envFile) {
@@ -68,13 +81,21 @@ try { run("bash -c 'chmod +x scripts/*.sh */scripts/*.sh 2>/dev/null || chmod +x
 
 // Show active profiles
 const envFile = resolve(ROOT, ".env");
-log("Active COMPOSE_PROFILES:", envGet(envFile, "COMPOSE_PROFILES") || "(unset)");
-if (hasLitestreamConfig(envFile)) ensureProfile("litestream", envFile);
+log("Base COMPOSE_PROFILES:", envGet(envFile, "COMPOSE_PROFILES") || "(unset)");
+if (hasLitestreamConfig(envFile)) {
+  ensureProfile("litestream", envFile);
+  process.env.LITESTREAM_CONTAINER_NAME = firstIndexedName(envFile, "LITESTREAM", "SERVICE");
+}
+if (hasRcloneConfig(envFile)) {
+  ensureProfile("rclone", envFile);
+  process.env.RCLONE_CONTAINER_NAME = firstIndexedName(envFile, "RCLONE", "NAME");
+}
 process.env.DOCKER_VOLUME_RUNTIME_ABS = resolveVolumeRoot(envGet(envFile, "DOCKER_VOLUME_RUNTIME"), "ci-runtime");
 process.env.DOCKER_VOLUME_DATA_ABS = resolveVolumeRoot(envGet(envFile, "DOCKER_VOLUME_DATA"), "ci-data");
 
 run(`node litestream/scripts/generate-config.mjs${SILENT ? " --silent" : ""}`);
 run(`node litestream/scripts/restore.mjs${SILENT ? " --silent" : ""}`);
+run(`node rclone/scripts/pull.mjs${SILENT ? " --silent" : ""}`);
 
 // Start stack
 if (MODE === "named") {

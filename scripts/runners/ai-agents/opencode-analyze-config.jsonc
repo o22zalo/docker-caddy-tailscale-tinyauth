@@ -3,7 +3,7 @@
   "timeout_ms": 600000,
 
   // Services expected in this stack.
-  "services": ["caddy", "tinyauth", "whoami", "cloudflared", "tailscale", "dozzle", "filebrowser", "webssh"],
+  "services": ["caddy", "tinyauth", "whoami", "cloudflared", "tailscale", "litestream", "rclone", "dozzle", "filebrowser", "webssh"],
 
   // Source/config files opencode must inspect when correlating logs to fixes.
   "code_files": [
@@ -14,6 +14,10 @@
     "litestream/litestream.yml",
     "litestream/scripts/generate-config.mjs",
     "litestream/scripts/restore.mjs",
+    "rclone/rclone.yml",
+    "rclone/Dockerfile",
+    "rclone/scripts/pull.mjs",
+    "rclone/scripts/sync-loop.mjs",
     "tinyauth/tinyauth.yml",
     "whoami/whoami.yml",
     "dozzle/dozzle.yml",

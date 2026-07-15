@@ -1,0 +1,15 @@
+{
+  // Default rclone image used by helper scripts.
+  "image": "proxy-stack-rclone:local",
+  "pull_image": "rclone/rclone:1.68",
+
+  // Root-relative fallback locations.
+  "runtime_root": "ci-runtime",
+  "data_root": "./ci-data/rclone",
+
+  // Parallel jobs. Keep high by default; rclone has its own transfer/checker limits.
+  "concurrency": 8,
+  "transfers": 8,
+  "checkers": 16,
+  "interval_seconds": 300
+}

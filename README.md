@@ -19,6 +19,7 @@ Tailnet  ──► Tailscale Serve ──► Caddy   (optional private access)
 | `networks/networks.yml` | Shared `proxy` bridge network |
 | `caddy/caddy.yml` + `caddy/scripts/` | Reverse proxy (`caddy-docker-proxy`) |
 | `litestream/litestream.yml` + `litestream/scripts/` | SQLite restore/replication |
+| `rclone/rclone.yml` + `rclone/scripts/` | File/folder remote sync |
 | `tinyauth/tinyauth.yml` + `tinyauth/scripts/` | Forward-auth login UI |
 | `whoami/whoami.yml` | Demo upstream app |
 | `dozzle/dozzle.yml` | Protected Docker log viewer |
@@ -44,7 +45,7 @@ Tailnet  ──► Tailscale Serve ──► Caddy   (optional private access)
 cp .env.example .env
 # edit .env — COMPOSE_PROFILES, CF_TUNNEL_TOKEN, DOMAIN, TINYAUTH_* hosts
 
-docker compose up -d                    # uses COMPOSE_PROFILES from .env (default: core)
+node scripts/up.mjs                     # uses COMPOSE_PROFILES from .env (default: core)
 
 # whole stack including Tailscale:
 #   COMPOSE_PROFILES=full
@@ -60,7 +61,7 @@ COMPOSE_PROFILES=core,tailscale docker compose up -d
 |---------|----------|
 | `core` | caddy, tinyauth, whoami, cloudflare |
 | `full` | core + tailscale + dozzle + filebrowser + webssh |
-| `caddy` / `litestream` / `tinyauth` / `whoami` / `cloudflare` / `tailscale` / `dozzle` / `filebrowser` / `webssh` | từng service |
+| `caddy` / `litestream` / `rclone` / `tinyauth` / `whoami` / `cloudflare` / `tailscale` / `dozzle` / `filebrowser` / `webssh` | từng service |
 
 Set in `.env`:
 
@@ -69,6 +70,12 @@ COMPOSE_PROFILES=core
 # COMPOSE_PROFILES=full
 # COMPOSE_PROFILES=caddy,whoami
 ```
+
+`litestream` và `rclone` không cần thêm vào `COMPOSE_PROFILES` khi dùng
+`node scripts/up.mjs` hoặc CI: helper tự bật nếu `.env` có
+`LITESTREAM_<index>_SERVICE` hoặc `RCLONE_<index>_NAME`. Nếu chạy
+`docker compose up` trực tiếp, Compose không tự suy luận được, nên phải tự thêm
+profile hoặc dùng helper.
 
 ```bash
 make profiles   # xem profile / service hiện tại
@@ -127,6 +134,7 @@ Root `.env.example` = minimal keys the compose files actually use.
 | [`cloudflare/.env.example`](cloudflare/.env.example) | `TUNNEL_*`, protocol, loglevel, token |
 | [`caddy/.env.example`](caddy/.env.example) | ports, `CADDY_DOCKER_*`, ingress networks |
 | [`litestream/.env.example`](litestream/.env.example) | indexed `LITESTREAM_<index>_*` S3 sync blocks |
+| [`rclone/.env.example`](rclone/.env.example) | indexed `RCLONE_<index>_*` file/folder sync blocks |
 | [`tinyauth/.env.example`](tinyauth/.env.example) | all `TINYAUTH_*` v5 groups |
 | [`whoami/.env.example`](whoami/.env.example) | `WHOAMI_HOST` / labels |
 | [`dozzle/.env.example`](dozzle/.env.example) | `DOZZLE_HOSTS` / labels |
@@ -178,6 +186,27 @@ Startup helpers auto-enable the `litestream` profile when a `LITESTREAM_*`
 block exists, generate `ci-runtime/litestream/litestream.yml`, restore any
 missing local DB from S3 if present, then start containers. If S3 has no backup
 yet, the app creates the DB and Litestream replicates it afterward.
+
+### Rclone data sync
+
+Rclone is optional. If no `RCLONE_<index>_NAME` block exists, startup skips
+pull and no rclone container is started. Rclone-managed data should live under
+`${DOCKER_VOLUME_DATA}/rclone/<name>/`.
+
+```env
+RCLONE_0_NAME=tinyauth-db
+RCLONE_0_TYPE=file
+RCLONE_0_LOCAL=/data/tinyauth-db/tinyauth.db
+RCLONE_0_REMOTE=remote:proxy-stack/tinyauth.db
+RCLONE_0_INTERVAL=300
+RCLONE_0_CONFIG_BASE64=...
+```
+
+`RCLONE_0_NAME=tinyauth-db` makes the first rclone container name
+`rclone-0-tinyauth-db`. Startup helpers pull all configured jobs in parallel
+before app containers start; the rclone container then pushes local changes on
+each job interval. Use `TYPE=dir` for whole folders. See
+[`docs/deploys/rclone.md`](docs/deploys/rclone.md).
 
 ## Cloudflare named tunnel setup
 
@@ -249,6 +278,7 @@ docker compose \
   -f networks/networks.yml \
   -f caddy/caddy.yml \
   -f litestream/litestream.yml \
+  -f rclone/rclone.yml \
   -f tinyauth/tinyauth.yml \
   -f whoami/whoami.yml \
   -f cloudflare/cloudflare.yml \

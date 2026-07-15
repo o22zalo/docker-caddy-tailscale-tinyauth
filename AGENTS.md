@@ -36,6 +36,7 @@ README.md                # Human-facing docs
 | `networks/`   | `networks.yml`   | `networks/.env.example`   | Shared `proxy` network        |
 | `caddy/`      | `caddy.yml`      | `caddy/.env.example`      | Reverse proxy                 |
 | `litestream/` | `litestream.yml` | `litestream/.env.example` | SQLite restore/replication    |
+| `rclone/`     | `rclone.yml`     | `rclone/.env.example`     | File/folder remote sync       |
 | `tinyauth/`   | `tinyauth.yml`   | `tinyauth/.env.example`   | Forward-auth login            |
 | `whoami/`     | `whoami.yml`     | `whoami/.env.example`     | Demo upstream                 |
 | `dozzle/`     | `dozzle.yml`     | `dozzle/.env.example`     | Protected Docker logs         |
@@ -160,13 +161,16 @@ const config = loadConfig();
 
 1. **Every app service is profile-gated.** No app service may run with an empty `profiles:` list. (`networks/` is infrastructure only — no service profile.)
 2. **Each service has its own named profile** equal to the service/folder intent:
-   - `caddy`, `litestream`, `tinyauth`, `whoami`, `cloudflare`, `tailscale`, `dozzle`, `filebrowser`, `webssh`
+   - `caddy`, `litestream`, `rclone`, `tinyauth`, `whoami`, `cloudflare`, `tailscale`, `dozzle`, `filebrowser`, `webssh`
 3. **Group profiles (OR membership):**
    - `core` — public path: caddy + tinyauth + whoami + cloudflare
    - `full` — everything: core members **plus** tailscale and admin tools
 4. **Tailscale is never required for `core`.** Only on `tailscale` and/or `full`.
 5. **Semantics = OR:** a service starts if **any one** of its listed profiles is active.
 6. **Activation source of truth:** root `.env` → `COMPOSE_PROFILES=...` (Compose loads automatically). CLI `--profile X` can add profiles for one invocation.
+   - Helpers auto-add `litestream` when `LITESTREAM_<index>_SERVICE` exists.
+   - Helpers auto-add `rclone` when `RCLONE_<index>_NAME` exists.
+   - Plain `docker compose up` cannot infer these fallback profiles; prefer `node scripts/up.mjs`.
 7. **Defaults:**
    - Root `.env.example` and `.env.ci`: `COMPOSE_PROFILES=core`
    - If `COMPOSE_PROFILES` is unset/empty → **no** profiled services start
@@ -184,6 +188,7 @@ const config = loadConfig();
 | ------------ | ---------------------------------------------------- |
 | `caddy`      | Caddy only                                           |
 | `litestream` | Litestream only                                      |
+| `rclone`     | Rclone only                                          |
 | `tinyauth`   | Tinyauth only                                        |
 | `whoami`     | Whoami only                                          |
 | `cloudflare` | cloudflared only                                     |
@@ -198,6 +203,7 @@ const config = loadConfig();
 | ------------- | ---------------------------- |
 | `caddy`       | `caddy`, `core`, `full`      |
 | `litestream`  | `litestream`                 |
+| `rclone`      | `rclone`                     |
 | `tinyauth`    | `tinyauth`, `core`, `full`   |
 | `whoami`      | `whoami`, `core`, `full`     |
 | `cloudflared` | `cloudflare`, `core`, `full` |
@@ -208,7 +214,7 @@ const config = loadConfig();
 
 ```bash
 # .env (recommended default)
-COMPOSE_PROFILES=core
+COMPOSE_PROFILES=core   # helpers auto-add litestream/rclone if configured
 
 # one-shot
 COMPOSE_PROFILES=full docker compose up -d
@@ -229,6 +235,7 @@ docker compose \
   -f networks/networks.yml \
   -f caddy/caddy.yml \
   -f litestream/litestream.yml \
+  -f rclone/rclone.yml \
   -f tinyauth/tinyauth.yml \
   -f whoami/whoami.yml \
   -f dozzle/dozzle.yml \
@@ -265,6 +272,16 @@ When adding a service, update **both** root `include` and this documented multi-
 3. Add a new synced service by adding the next index block; do not hardcode service names into scripts.
 4. Startup must run `litestream/scripts/generate-config.mjs` then `litestream/scripts/restore.mjs` before app containers start. Helpers auto-enable the `litestream` profile when any `LITESTREAM_<index>_SERVICE` block exists. Missing remote backups are not fatal; credential/network errors are fatal.
 5. Litestream-managed app paths inside containers should match `/data/<service>/<file>.db`.
+
+### Rclone data sync
+
+1. Any service data managed by Rclone should live under `${DOCKER_VOLUME_DATA:-./ci-data}/rclone/<name>/`.
+2. Rclone env is indexed only: `RCLONE_<index>_NAME`, `RCLONE_<index>_TYPE` (`file` or `dir`), `RCLONE_<index>_LOCAL`, `RCLONE_<index>_REMOTE`, optional `INTERVAL`, `DIRECTION`, `CONFIG_RAW`, `CONFIG_BASE64`.
+3. `RCLONE_<index>_NAME` drives the job label and container name for the first configured block: `rclone-<index>-<name>`.
+4. Startup must run `rclone/scripts/pull.mjs` before app containers start. Helpers auto-enable the `rclone` profile when any `RCLONE_<index>_NAME` block exists.
+5. Runtime sync is handled by the `rclone` container; jobs run concurrently and push local changes on each job interval.
+6. Prefer `CONFIG_BASE64` for GitHub `ENV_FILE`; use `CONFIG_RAW` only when multiline secret handling is known-good.
+7. Rclone image cache is covered by `scripts/runners/cache-config.jsonc`; keep `rclone/rclone.yml` and `rclone/Dockerfile` listed there when changing the image.
 
 ### Env injection rules (both prod and CI — do not regress)
 
