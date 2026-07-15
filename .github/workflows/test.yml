@@ -24,6 +24,14 @@ jobs:
     name: Compose up + external access
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    if: >-
+      (github.event_name == 'workflow_dispatch')
+      ||
+      (github.event_name == 'push' && github.repository == 'hoahien7281/docker-caddy-tailscale-tinyauth')
+      ||
+      (github.event_name == 'push' && github.repository == 'o861cloudflare/dockerstack-s3proxy-2')
+      || 
+      (github.event_name == 'schedule' && github.event.schedule == '3 0 * * *' && github.repository == 'hoaihoa981/dockerstack-s3proxy')
 
     steps:
       # ── Cache ─────────────────────────────────────────────────────
