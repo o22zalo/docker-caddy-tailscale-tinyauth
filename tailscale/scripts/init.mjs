@@ -52,7 +52,9 @@ function isDomain(value) {
 function renderServe(services, tailnet, eol = "\n") {
   const web = {};
   for (const svc of services) {
-    web[`${svc.name}.${tailnet}:443`] = { Handlers: { "/": { Proxy: svc.upstream } } };
+    for (const name of unique([svc.name, ...(svc.names || [])].filter(Boolean))) {
+      web[`${name}.${tailnet}:443`] = { Handlers: { "/": { Proxy: svc.upstream } } };
+    }
   }
   return `${JSON.stringify({ TCP: { 443: { HTTPS: true } }, Web: web }, null, 2)}${eol}`;
 }
@@ -156,7 +158,7 @@ async function main() {
   log(`Serve file:   ${servePath}`);
   log(`ACL sample:   ${aclSamplePath}`);
   log(`ACL file:     ${aclPath}`);
-  log(`Routes:       ${services.map((s) => `${s.name}.${tailnet || "TS_TAILNET"} -> ${s.upstream}`).join(", ")}`);
+  log(`Routes:       ${services.flatMap((s) => unique([s.name, ...(s.names || [])].filter(Boolean)).map((name) => `${name}.${tailnet || "TS_TAILNET"} -> ${s.upstream}`)).join(", ")}`);
   if (badTags.length) log(`Warning: ignoring invalid TS_TAGS: ${badTags.join(", ")}`);
 
   const envWrites = [];

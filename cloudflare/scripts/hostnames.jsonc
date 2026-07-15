@@ -8,6 +8,7 @@
     "webssh", // WebSSH/ttyd terminal
     "whoami",
     "dozzle", // Docker logs
+    "logs", // Docker logs
   ],
 
   // Service URL mà tất cả hostname trỏ về

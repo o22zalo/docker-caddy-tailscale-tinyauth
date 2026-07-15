@@ -129,7 +129,7 @@ Root `.env.example` = minimal keys the compose files actually use.
 | [`litestream/.env.example`](litestream/.env.example) | indexed `LITESTREAM_<index>_*` S3 sync blocks |
 | [`tinyauth/.env.example`](tinyauth/.env.example) | all `TINYAUTH_*` v5 groups |
 | [`whoami/.env.example`](whoami/.env.example) | `WHOAMI_HOST` / labels |
-| [`dozzle/.env.example`](dozzle/.env.example) | `DOZZLE_HOST` / labels |
+| [`dozzle/.env.example`](dozzle/.env.example) | `DOZZLE_HOSTS` / labels |
 | [`filebrowser/.env.example`](filebrowser/.env.example) | `FILEBROWSER_HOST` / workspace mount notes |
 | [`webssh/.env.example`](webssh/.env.example) | `WEBSSH_HOSTS` / ttyd + tmux notes |
 | [`tailscale/.env.example`](tailscale/.env.example) | all `TS_*` Docker params |
@@ -149,7 +149,7 @@ Do **not** copy blank lines like `TINYAUTH_SERVER_SOCKETPATH=` — empty optiona
 | `TINYAUTH_AUTH_USERS` | `user:bcrypt` (use `$$` for `$` in Compose) |
 | `TINYAUTH_AUTH_SECURECOOKIE` | `true` behind HTTPS public URLs |
 | `WHOAMI_HOST` | Caddy site for the demo app |
-| `DOZZLE_HOST` | Caddy site for protected Docker logs |
+| `DOZZLE_HOSTS` | Caddy sites for protected Docker logs |
 | `FILEBROWSER_HOST` | Caddy site for protected repo file browser |
 | `WEBSSH_HOSTS` | Caddy sites for protected ttyd/tmux terminal |
 | `TS_AUTHKEY` | Tailscale auth key (profile `tailscale`) |
@@ -190,6 +190,7 @@ yet, the app creates the DB and Litestream replicates it afterward.
    | `auth.example.com` | `http://caddy:80` |
    | `whoami.example.com` | `http://caddy:80` |
    | `dozzle.example.com` | `http://caddy:80` |
+   | `logs.example.com` | `http://caddy:80` |
    | `files.example.com` | `http://caddy:80` |
    | `ttyd.example.com` | `http://caddy:80` |
    | `webssh.example.com` | `http://caddy:80` |
@@ -222,7 +223,7 @@ docker compose --profile core --profile tailscale up -d
 ```
 
 - Uses userspace networking (`TS_USERSPACE=true`) — no host kernel module required.
-- `tailscale/serve.json` proxies HTTPS on the Tailscale node directly to each service from `tailscale/scripts/init.jsonc`.
+- `tailscale/serve.json` proxies HTTPS on the Tailscale node directly to each service from `tailscale/scripts/init.jsonc`; aliases use `names` (for example `dozzle` + `logs`).
 - Private hosts use `<service>.<TS_TAILNET>` (for example `files.example.ts.net`) and do not go through Tinyauth labels.
 - ACL flow: `.env` + `tailscale/acl.sample.hujson` renders `tailscale/acl.hujson`, then init uploads `acl.hujson` to remote Tailscale ACL.
 - `TS_CLIENT_ID` / `TS_CLIENT_SECRET` are the single Trust Credentials pair for API init and machine join.

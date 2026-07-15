@@ -40,6 +40,13 @@
         }
       }
     },
+    "logs.tailaa8079.ts.net:443": {
+      "Handlers": {
+        "/": {
+          "Proxy": "http://dozzle:8080"
+        }
+      }
+    },
     "whoami.tailaa8079.ts.net:443": {
       "Handlers": {
         "/": {

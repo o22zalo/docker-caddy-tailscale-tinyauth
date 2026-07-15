@@ -13,7 +13,7 @@
 #
 # Env/catalog:
 #   - dozzle/.env.example
-#   - DOZZLE_HOST defaults to http://dozzle.${DOMAIN}
+#   - DOZZLE_HOSTS defaults to http://dozzle.${DOMAIN}, http://logs.${DOMAIN}
 #
 # Profiles: dozzle | full
 # =============================================================================
@@ -33,7 +33,7 @@ services:
     networks:
       - proxy
     labels:
-      caddy: ${CADDY_DOZZLE_HOST:-${DOZZLE_HOST:-http://dozzle.${DOMAIN:-localhost}}}
+      caddy: ${CADDY_DOZZLE_HOSTS:-${DOZZLE_HOSTS:-${DOZZLE_HOST:-http://dozzle.${DOMAIN:-localhost}, http://logs.${DOMAIN:-localhost}}}}
       caddy.reverse_proxy: "{{upstreams 8080}}"
       caddy.import: tinyauth_forwarder *
     profiles:

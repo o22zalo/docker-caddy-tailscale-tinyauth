@@ -79,12 +79,12 @@ jobs:
           echo "## Container status" >> "$GITHUB_STEP_SUMMARY"
           docker compose ps >> "$GITHUB_STEP_SUMMARY" 2>&1 || docker ps -a >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
 
-      # ── Keep-alive (manual runs) ──────────────────────────────────
+      # ── Keep-alive (push + manual runs) ───────────────────────────
       - name: Keep-alive heartbeat
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.keep_alive_minutes != '0'
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.keep_alive_minutes != '0')
         env:
-          KEEP_MIN: ${{ github.event.inputs.keep_alive_minutes }}
-          INTERVAL_MIN: ${{ github.event.inputs.keep_alive_interval }}
+          KEEP_MIN: ${{ github.event.inputs.keep_alive_minutes || '5' }}
+          INTERVAL_MIN: ${{ github.event.inputs.keep_alive_interval || '5' }}
         run: |
           set -euo pipefail
           total=$(( KEEP_MIN * 60 ))
