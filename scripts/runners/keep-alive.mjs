@@ -77,7 +77,7 @@ function login(timeout) {
   const headersFile = resolve(tmpdir(), `tinyauth-login-${process.pid}.headers`);
   const responseFile = resolve(tmpdir(), `tinyauth-login-${process.pid}.body`);
   writeFileSync(bodyFile, JSON.stringify({ username, password }));
-  const cmd = `curl -k -sS -D "${headersFile}" -c "${COOKIE_FILE}" -o "${responseFile}" -w "%{http_code}" --max-time ${timeout} -X POST -H "Content-Type: application/json" --data-binary "@${bodyFile}" "${url.replace(/\/$/, "")}/api/login"`;
+  const cmd = `curl -k -sS -D "${headersFile}" -c "${COOKIE_FILE}" -o "${responseFile}" -w "%{http_code}" --max-time ${timeout} -X POST -H "Content-Type: application/json" --data-binary "@${bodyFile}" "${url.replace(/\/$/, "")}/api/user/login"`;
   if (DRY_RUN) { log(`[DRY RUN] ${cmd.replace(password, "<password>")}`); return { ok: true, reason: "dry-run" }; }
 
   // curl's own exit code (transport-level: DNS/connect/timeout) is separate from
@@ -98,7 +98,7 @@ function login(timeout) {
     return { ok: false, reason: "network", curlExit };
   }
 
-  log(`[auth] ${url}/api/login -> HTTP ${code}`);
+  log(`[auth] ${url}/api/user/login -> HTTP ${code}`);
   showHttpDebug("auth", headersFile, responseFile);
   log(`[auth] cookies=${cookieNames().join(",") || "(none)"}`);
 
