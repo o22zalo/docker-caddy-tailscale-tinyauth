@@ -1,4 +1,4 @@
-.PHONY: up up-ci up-core up-full up-ts down logs ps config profiles test-ci user provision tunnel-url ts-status add-app validate-apps gen-app-ci
+.PHONY: up up-ci up-core up-full up-ts down logs ps config profiles test-ci user provision tunnel-url ts-status add-app validate-apps gen-app-ci orch-status orch-register orch-watch
 
 # Uses COMPOSE_PROFILES from .env (default in .env.example: core)
 up:
@@ -67,3 +67,16 @@ gen-app-ci:
 
 dump-config:
 	node caddy/scripts/dump-config.mjs
+
+# ── Orchestrator sidecar (RTDB-as-Consul) ───────────────────────────────────
+# Xem trạng thái consul (leader + nodes) từ RTDB. Cần ORCH_RTDB_* trong .env.
+orch-status:
+	node orchestrator/scripts/status.mjs
+
+# Ghi trạng thái node hiện tại lên RTDB + heartbeat (chạy trên host/CI, YC①).
+orch-register:
+	node orchestrator/scripts/register.mjs ready
+
+# Lắng nghe node mới ready trên RTDB (YC②). Thêm --run-pipeline để chạy hook.
+orch-watch:
+	node orchestrator/scripts/watch.mjs

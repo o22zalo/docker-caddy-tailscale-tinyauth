@@ -7,7 +7,6 @@
 //   --dry-run   Show commands without running
 //   --silent    Suppress output
 import { execSync, spawn } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { detectDocker, dockerCmd } from "./_docker.mjs";

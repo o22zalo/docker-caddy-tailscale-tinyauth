@@ -1,0 +1,32 @@
+// orchestrator/config.jsonc
+// Cấu hình pipeline handoff (nghiệp vụ "phía sau" khi chuyền ca giữa các node).
+//
+// handoff_pipeline: chạy TUẦN TỰ khi leader nhường ghế cho node mới.
+//   - "string"           → built-in hook (xem hooks/index.mjs: BUILTIN)
+//   - { "shell": "..." } → chạy lệnh shell tuỳ ý trong repo (dễ mở rộng!)
+//       + hỗ trợ nội suy ${successor} ${term} và mọi biến ENV ${VAR}
+//       + "critical": true → hook lỗi sẽ CHẶN pipeline (rollback an toàn)
+//       + "timeout_seconds": giới hạn thời gian
+//
+// Thứ tự khuyến nghị: upload dữ liệu TRƯỚC, rồi mới stop cloudflared (nhường tunnel).
+{
+  "handoff_pipeline": [
+    "upload-data",
+    "stop-cloudflared"
+
+    // ── Ví dụ thêm nghiệp vụ phía sau (bỏ comment để dùng) ──────────────
+    // ,{ "name": "notify", "shell": "curl -sS -X POST \"$ORCH_WEBHOOK_URL\" -d node=${successor}" }
+    // ,{ "name": "snapshot-db", "shell": "docker compose exec -T litestream litestream snapshots", "timeout_seconds": 120 }
+    // ,{ "name": "flush-cache", "shell": "node scripts/flush-cache.mjs", "critical": true }
+  ],
+
+  // Chu kỳ standby cố giành leader (giây).
+  "acquire_interval_seconds": 5,
+
+  // Chu kỳ leader renew + kiểm tra successor (giây).
+  "poll_interval_seconds": 5,
+
+  // true: node mới ready là leader cũ chạy pipeline + nhường tunnel.
+  // false: chỉ nhường khi quá ORCH_MAX_LEADER_SECONDS hoặc ORCH_FORCE_HANDOFF=1.
+  "handoff_on_successor_ready": true
+}

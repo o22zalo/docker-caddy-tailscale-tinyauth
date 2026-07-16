@@ -1,0 +1,48 @@
+# =============================================================================
+# orchestrator/orchestrator.yml — RTDB-as-Consul sidecar (điều phối leader/con)
+# =============================================================================
+#
+# Mục đích trong dự án:
+#   Sidecar biến Firebase RTDB thành "consul" điều phối nhiều node CI (GitHub
+#   Actions / Azure Pipelines) vốn bị giới hạn ~60'. Giữ dịch vụ LIỀN MẠCH:
+#     ① start OK → ghi trạng thái (giờ, máy, meta từ env) lên RTDB
+#     ② lắng nghe path → khi node mới ready thì stop cloudflared + upload...
+#     ③ handoff traffic qua NAMED tunnel (cùng domain, zero-downtime)
+#
+# "Toàn quyền" trong flow: mount docker.sock (điều khiển compose, xem log) +
+# mount repo (xem dữ liệu toàn repo). Chỉ chạy khi CONSUL_ENABLE=1.
+#
+# Env — thứ tự ưu tiên (Compose): ../.env → ./.env → environment (cao nhất).
+# Catalog: orchestrator/.env.example
+#
+# Profiles: orchestrator | core | full
+# =============================================================================
+
+services:
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: orchestrator/Dockerfile
+    image: proxy-stack-orchestrator:local
+    container_name: orchestrator
+    restart: unless-stopped
+    # SIGTERM → sidecar tự nhường ghế (releaseLeadership) trước khi tắt.
+    stop_grace_period: 45s
+    env_file:
+      - path: ../.env
+        required: false
+      - path: .env
+        required: false
+    environment:
+      ORCH_REPO_DIR: /workspace
+    volumes:
+      # Toàn quyền điều khiển compose / xem log của toàn stack.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Xem dữ liệu toàn repo (read-only). Đổi thành rw nếu hook cần ghi.
+      - ..:/workspace:ro
+    networks:
+      - proxy
+    profiles:
+      - orchestrator
+      - core
+      - full

@@ -44,6 +44,7 @@ README.md                # Human-facing docs
 | `webssh/`     | `webssh.yml`     | `webssh/.env.example`     | Protected ttyd/tmux terminal  |
 | `cloudflare/` | `cloudflare.yml` | `cloudflare/.env.example` | cloudflared public edge       |
 | `tailscale/`  | `tailscale.yml`  | `tailscale/.env.example`  | Profiles: `tailscale`, `full` |
+| `orchestrator/`| `orchestrator.yml`| `orchestrator/.env.example`| RTDB leader/handoff sidecar   |
 
 ### Naming rules
 
@@ -175,9 +176,9 @@ joins `proxy`.
 
 1. **Every app service is profile-gated.** No app service may run with an empty `profiles:` list. (`networks/` is infrastructure only — no service profile.)
 2. **Each service has its own named profile** equal to the service/folder intent:
-   - `caddy`, `litestream`, `rclone`, `tinyauth`, `whoami`, `cloudflare`, `tailscale`, `dozzle`, `filebrowser`, `webssh`
+   - `caddy`, `litestream`, `rclone`, `tinyauth`, `whoami`, `cloudflare`, `tailscale`, `dozzle`, `filebrowser`, `webssh`, `orchestrator`
 3. **Group profiles (OR membership):**
-   - `core` — public path: caddy + tinyauth + whoami + cloudflare
+   - `core` — public path: caddy + tinyauth + whoami + cloudflare + orchestrator
    - `full` — everything: core members **plus** tailscale and admin tools
 4. **Tailscale is never required for `core`.** Only on `tailscale` and/or `full`.
 5. **Semantics = OR:** a service starts if **any one** of its listed profiles is active.
@@ -210,7 +211,8 @@ joins `proxy`.
 | `dozzle`     | Dozzle only                                          |
 | `filebrowser`| Filebrowser only                                     |
 | `webssh`     | WebSSH/ttyd only                                     |
-| `core`       | caddy + tinyauth + whoami + cloudflare (public path) |
+| `orchestrator`| Orchestrator sidecar only                           |
+| `core`       | caddy + tinyauth + whoami + cloudflare + orchestrator (public path) |
 | `full`       | core + tailscale + dozzle + filebrowser + webssh     |
 
 | Service       | Profiles on the service      |
@@ -225,6 +227,7 @@ joins `proxy`.
 | `dozzle`      | `dozzle`, `full`             |
 | `filebrowser` | `filebrowser`, `full`        |
 | `webssh`      | `webssh`, `full`             |
+| `orchestrator`| `orchestrator`, `core`, `full` |
 
 ```bash
 # .env (recommended default)
@@ -257,6 +260,7 @@ docker compose \
   -f webssh/webssh.yml \
   -f cloudflare/cloudflare.yml \
   -f tailscale/tailscale.yml \
+  -f orchestrator/orchestrator.yml \
   up -d
 ```
 
@@ -490,6 +494,7 @@ docker compose -f docker-compose.yml -f docker-compose.ci.yml up -d
 ./tailscale/scripts/init.mjs --env .env
 ./tailscale/scripts/status.mjs
 ./caddy/scripts/dump-config.mjs
+./orchestrator/scripts/status.mjs
 ```
 
 ## Commit message template (git-o commithook) — bắt buộc khi kết thúc

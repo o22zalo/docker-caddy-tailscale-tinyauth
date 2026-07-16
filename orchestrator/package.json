@@ -1,0 +1,20 @@
+{
+  "name": "orchestrator-sidecar",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "RTDB-as-Consul orchestrator sidecar: leader election, seamless handoff across CI runner 60-min limits.",
+  "bin": {
+    "orchestrator": "scripts/main.mjs"
+  },
+  "scripts": {
+    "start": "node scripts/main.mjs",
+    "register": "node scripts/register.mjs",
+    "watch": "node scripts/watch.mjs",
+    "status": "node scripts/status.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "jsonc-parser": "^3.3.1"
+  }
+}

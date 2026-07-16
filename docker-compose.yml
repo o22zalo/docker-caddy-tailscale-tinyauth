@@ -68,3 +68,4 @@ include:
   - path: ./webssh/webssh.yml
   - path: ./cloudflare/cloudflare.yml
   - path: ./tailscale/tailscale.yml
+  - path: ./orchestrator/orchestrator.yml

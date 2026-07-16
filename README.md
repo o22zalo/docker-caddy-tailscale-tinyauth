@@ -27,6 +27,7 @@ Tailnet  ──► Tailscale Serve ──► Caddy   (optional private access)
 | `webssh/webssh.yml` | Protected web terminal with persistent tmux session |
 | `cloudflare/cloudflare.yml` + `cloudflare/scripts/` | `cloudflared` tunnel (public edge) |
 | `tailscale/tailscale.yml` + `tailscale/scripts/` | Optional Tailscale node + Serve |
+| `orchestrator/orchestrator.yml` + `orchestrator/scripts/` | RTDB leader/handoff sidecar |
 | `scripts/` | **Stack-wide only** (`up.mjs`, `wait-and-test.mjs`) |
 | `docker-compose.yml` | Joins all service files |
 | `docker-compose.ci.yml` | Quick-tunnel overrides for CI |
@@ -59,9 +60,9 @@ COMPOSE_PROFILES=core,tailscale docker compose up -d
 
 | Profile | Services |
 |---------|----------|
-| `core` | caddy, tinyauth, whoami, cloudflare |
+| `core` | caddy, tinyauth, whoami, cloudflare, orchestrator |
 | `full` | core + tailscale + dozzle + filebrowser + webssh |
-| `caddy` / `litestream` / `rclone` / `tinyauth` / `whoami` / `cloudflare` / `tailscale` / `dozzle` / `filebrowser` / `webssh` | từng service |
+| `caddy` / `litestream` / `rclone` / `tinyauth` / `whoami` / `cloudflare` / `tailscale` / `dozzle` / `filebrowser` / `webssh` / `orchestrator` | từng service |
 
 Set in `.env`:
 
@@ -92,6 +93,7 @@ chmod +x scripts/*.sh */scripts/*.sh
 ./cloudflare/scripts/extract-tunnel-url.mjs
 ./tailscale/scripts/status.mjs
 ./caddy/scripts/dump-config.mjs
+./orchestrator/scripts/status.mjs
 ```
 
 Service-specific scripts live under `<service>/scripts/`. Only orchestration scripts stay in root `scripts/`. See `AGENTS.md`.
@@ -142,6 +144,7 @@ Root `.env.example` = minimal keys the compose files actually use.
 | [`webssh/.env.example`](webssh/.env.example) | `WEBSSH_HOSTS` / ttyd + tmux notes |
 | [`tailscale/.env.example`](tailscale/.env.example) | all `TS_*` Docker params |
 | [`networks/.env.example`](networks/.env.example) | network knobs (mostly hard-coded) |
+| [`orchestrator/.env.example`](orchestrator/.env.example) | `ORCH_*` RTDB leader/handoff sidecar |
 
 Copy **only** keys you need from a catalog into root `.env` (with real values).  
 Do **not** copy blank lines like `TINYAUTH_SERVER_SOCKETPATH=` — empty optional env can prevent Tinyauth/Caddy from starting (same risk in prod and CI).
@@ -222,6 +225,12 @@ RCLONE_0_CONFIG_BASE64=...
 before app containers start; the rclone container then pushes local changes on
 each job interval. Use `TYPE=dir` for whole folders. See
 [`docs/deploys/rclone.md`](docs/deploys/rclone.md).
+
+### Orchestrator handoff
+
+Orchestrator is optional but included in `core`. Set `CONSUL_ENABLE=1` only when
+you want RTDB leader/standby handoff across CI runners. Full deploy guide:
+[`docs/deploys/orchestrator.md`](docs/deploys/orchestrator.md).
 
 ## Cloudflare named tunnel setup
 
@@ -317,6 +326,7 @@ docker compose \
   -f whoami/whoami.yml \
   -f cloudflare/cloudflare.yml \
   -f tailscale/tailscale.yml \
+  -f orchestrator/orchestrator.yml \
   up -d
 ```
 
