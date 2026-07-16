@@ -22,10 +22,16 @@ services:
     # Do not inject empty strings via environment: — omit key when unused.
     networks:
       - proxy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:80/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     labels:
       caddy: ${CADDY_WHOAMI_HOST:-${WHOAMI_HOST:-http://whoami.${DOMAIN:-localhost}}}
       caddy.reverse_proxy: "{{upstreams 80}}"
-      caddy.import: tinyauth_forwarder *
+      caddy.import: whoami_tinyauth_forwarder *
     profiles:
       - whoami
       - core

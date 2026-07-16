@@ -148,7 +148,7 @@ const config = loadConfig();
 2. All app services attach to the shared network **`proxy`**.
 3. Prefer **labels** on services for Caddy routing (caddy-docker-proxy).
 4. Origin protocol is **HTTP**; TLS is terminated at Cloudflare Tunnel and/or Tailscale Serve.
-5. Tinyauth protects apps via Caddy snippet `tinyauth_forwarder` + `caddy.import: tinyauth_forwarder *`.
+5. Tinyauth protects apps via Caddy snippet `tinyauth_forwarder` + `caddy.import: tinyauth_forwarder *`; whoami is public by default and only uses forward-auth when `WHOAMI_TINYAUTH_ENABLED=true`.
 6. **Every service is profile-gated.** Use `COMPOSE_PROFILES` in root `.env` (Compose reads it automatically).
 7. CI overrides go in `docker-compose.ci.yml` (quick tunnel, catch-all `:80`, `labels: !override` where needed).
 8. Requires Docker Compose **v2.24+** (`include`, `!override`).
@@ -347,7 +347,7 @@ import { parseEnv, envGet, envHasKey, envKeys } from "../../scripts/lib/env-util
 | Empty optional env in YAML / `.env` | **Yes** — Tinyauth/Caddy can fail to start            | **Yes**                                                       |
 | `curl -L` following auth redirect   | Risky if `APPURL` wrong; OK if public `https://auth…` | **Fails** if forward-auth still on (redirect → internal host) |
 | Missing `CF_TUNNEL_TOKEN`              | cloudflared crash-loops (`tunnel run`)                | Expected — use CI override                                    |
-| Whoami protected by Tinyauth        | **Intended** — public probe may get **302/401**       | Must **disable** auth (CI `labels: !override`)                |
+| Whoami protected by Tinyauth        | Off by default; set `WHOAMI_TINYAUTH_ENABLED=true` for **302/401** auth flow | Off (CI `labels: !override`)                |
 | QUIC on GHA                         | Rare flake with `protocol=auto`                       | Common — force `http2` in CI                                  |
 
 Full config is **not** immune to empty-env / probe bugs; only the trycloudflare-specific pieces are CI-only.

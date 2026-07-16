@@ -33,6 +33,7 @@ services:
       # Stack defaults only (non-empty). Extra CADDY_DOCKER_* via env_file/.env.
       CADDY_INGRESS_NETWORKS: ${CADDY_INGRESS_NETWORKS:-proxy}
       CADDY_DOCKER_MODE: ${CADDY_DOCKER_MODE:-standalone}
+      WHOAMI_TINYAUTH_ENABLED: ${WHOAMI_TINYAUTH_ENABLED:-false}
     volumes:
       # Read-only socket — caddy-docker-proxy chỉ cần read. Nếu cần write → cân nhắc tecnativa/docker-socket-proxy.
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -51,6 +52,11 @@ services:
       caddy.forward_auth: tinyauth:3000
       caddy.forward_auth.uri: /api/auth/caddy
       caddy.forward_auth.copy_headers: Remote-User Remote-Name Remote-Email Remote-Groups
+      caddy_1: (whoami_tinyauth_forwarder)
+      caddy_1.@whoami_tinyauth_enabled.expression: '"{env.WHOAMI_TINYAUTH_ENABLED}" == "true"'
+      caddy_1.forward_auth: "@whoami_tinyauth_enabled tinyauth:3000"
+      caddy_1.forward_auth.uri: /api/auth/caddy
+      caddy_1.forward_auth.copy_headers: Remote-User Remote-Name Remote-Email Remote-Groups
     profiles:
       - caddy
       - core

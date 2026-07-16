@@ -39,6 +39,12 @@ services:
       - ${DOCKER_VOLUME_DATA_ABS:-../ci-data}/litestream/tinyauth:/data/tinyauth
     networks:
       - proxy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
     labels:
       # CADDY_TINYAUTH_HOST = site Caddy (không phải env process Tinyauth)
       caddy: ${CADDY_TINYAUTH_HOST:-${TINYAUTH_HOST:-http://auth.${DOMAIN:-localhost}}}

@@ -7,7 +7,7 @@ Each service lives in its own directory with its own Compose file. The root `doc
 ```
 Internet ──► Cloudflare Tunnel ──► Caddy ──► Tinyauth (login)
                                   │
-                                  └──► whoami (demo app, protected)
+                                  └──► whoami (demo app, public by default)
 
 Tailnet  ──► Tailscale Serve ──► Caddy   (optional private access)
 ```
@@ -121,7 +121,7 @@ If `ENV_FILE` is missing (e.g. fork PRs), CI falls back to `.env.ci` and a **Clo
 
 | CI mode | When | Compose | Public URL | Whoami auth |
 |---------|------|---------|------------|-------------|
-| **Named** | `ENV_FILE` has non-empty `CF_TUNNEL_TOKEN` | `docker compose up` | `WHOAMI_HOST` / `whoami.$DOMAIN` (https) | On (forward-auth) — **302/401 is success** |
+| **Named** | `ENV_FILE` has non-empty `CF_TUNNEL_TOKEN` | `docker compose up` | `WHOAMI_HOST` / `whoami.$DOMAIN` (https) | Off by default; set `WHOAMI_TINYAUTH_ENABLED=true` for forward-auth |
 | **Quick** | no secret or empty token | `+ docker-compose.ci.yml` | `*.trycloudflare.com` | Off (catch-all `:80`) |
 
 ### Per-service env catalogs
@@ -146,6 +146,8 @@ Root `.env.example` = minimal keys the compose files actually use.
 Copy **only** keys you need from a catalog into root `.env` (with real values).  
 Do **not** copy blank lines like `TINYAUTH_SERVER_SOCKETPATH=` — empty optional env can prevent Tinyauth/Caddy from starting (same risk in prod and CI).
 
+Public apps that should not go through Tinyauth: see [`docs/deploys/public-apps.md`](docs/deploys/public-apps.md).
+
 ### Important variables (minimal)
 
 | Variable | Purpose |
@@ -157,6 +159,7 @@ Do **not** copy blank lines like `TINYAUTH_SERVER_SOCKETPATH=` — empty optiona
 | `TINYAUTH_AUTH_USERS` | `user:bcrypt` (use `$$` for `$` in Compose) |
 | `TINYAUTH_AUTH_SECURECOOKIE` | `true` behind HTTPS public URLs |
 | `WHOAMI_HOST` | Caddy site for the demo app |
+| `WHOAMI_TINYAUTH_ENABLED` | Protect whoami with Tinyauth when `true`; default `false` |
 | `DOZZLE_HOSTS` | Caddy sites for protected Docker logs |
 | `FILEBROWSER_HOST` | Caddy site for protected repo file browser |
 | `WEBSSH_HOSTS` | Caddy sites for protected ttyd/tmux terminal |
@@ -232,7 +235,7 @@ Caddy routes by `Host` header; Cloudflare only needs to send traffic to `caddy:8
 ## Admin tools
 
 These are not part of `core`; enable them with `COMPOSE_PROFILES=full` or their
-own profiles. All public Caddy routes import `tinyauth_forwarder`.
+own profiles. Admin routes import `tinyauth_forwarder`; whoami imports a gated snippet and is public unless `WHOAMI_TINYAUTH_ENABLED=true`.
 
 - `dozzle`: Docker logs (`amir20/dozzle`), Docker socket mounted read-only.
 - `filebrowser`: repository root mounted at `/srv`; hidden files are visible.
@@ -270,7 +273,7 @@ Workflow: `.github/workflows/test.yml`
    - `curl` **without** `-L` (does not follow login redirects)
    - accepts HTTP **200 / 301 / 302 / 307 / 401 / 403** as “reachable”
 
-**Full production-like secret:** put a complete root `.env` in `ENV_FILE` (including `CF_TUNNEL_TOKEN`, public `TINYAUTH_APPURL`, `WHOAMI_HOST`, hostnames on the Cloudflare tunnel). Smoke success with auth still on is typically **302** (redirect to login) or **401**, not necessarily 200.
+**Full production-like secret:** put a complete root `.env` in `ENV_FILE` (including `CF_TUNNEL_TOKEN`, public `TINYAUTH_APPURL`, `WHOAMI_HOST`, hostnames on the Cloudflare tunnel). With default whoami auth off, smoke success is typically **200**; with `WHOAMI_TINYAUTH_ENABLED=true`, success may be **302** (redirect to login) or **401**.
 
 ## Multi-file compose without `include`
 
