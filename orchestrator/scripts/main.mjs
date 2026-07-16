@@ -68,15 +68,11 @@ async function findFreshSuccessor({ selfId }) {
 async function main() {
   const identity = getNodeIdentity();
   const config = loadConfig();
+  const consulEnabled = enabled();
 
-  if (!enabled()) {
-    log("CONSUL_ENABLE is off — sidecar idle (no election, no handoff).");
-    // Vẫn ghi 1 node record tối thiểu để quan sát, rồi ngủ.
-    try {
-      await startRegistration({ initialState: "ready" });
-    } catch (e) {
-      warn(`register skipped: ${e.message}`);
-    }
+  log(`CONSUL_ENABLE=${consulEnabled ? "on" : "off"}`);
+  if (!consulEnabled) {
+    log("Sidecar idle: no registration, no election, no handoff.");
     // giữ container sống
     // eslint-disable-next-line no-constant-condition
     while (true) await sleep(3600_000);

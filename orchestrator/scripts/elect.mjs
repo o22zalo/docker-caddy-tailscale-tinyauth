@@ -17,6 +17,10 @@ function now() {
   return Date.now();
 }
 
+function valueOrNull(value) {
+  return value === undefined || value === "" ? null : value;
+}
+
 // Thử giành quyền leader. Trả { acquired, term, leader }.
 export async function tryAcquire({ nodeId, host, publicUrl }) {
   const { db, paths } = connectRtdb();
@@ -30,15 +34,15 @@ export async function tryAcquire({ nodeId, host, publicUrl }) {
       return {
         nodeId,
         term: 1,
-        host: host || null,
-        publicUrl: publicUrl || null,
+        host: valueOrNull(host),
+        publicUrl: valueOrNull(publicUrl),
         acquiredAt: t,
         heartbeat: t,
       };
     }
     if (current.nodeId === nodeId) {
       // Mình đang là leader → renew.
-      return { ...current, heartbeat: t, publicUrl: publicUrl || current.publicUrl };
+      return { ...current, heartbeat: t, publicUrl: valueOrNull(publicUrl || current.publicUrl) };
     }
     const stale = t - (current.heartbeat || 0) > ttl;
     if (stale) {
@@ -46,8 +50,8 @@ export async function tryAcquire({ nodeId, host, publicUrl }) {
       return {
         nodeId,
         term: (current.term || 0) + 1,
-        host: host || null,
-        publicUrl: publicUrl || null,
+        host: valueOrNull(host),
+        publicUrl: valueOrNull(publicUrl),
         acquiredAt: t,
         heartbeat: t,
       };
@@ -66,11 +70,14 @@ export async function tryAcquire({ nodeId, host, publicUrl }) {
 export async function renewLeadership({ nodeId, publicUrl }) {
   const { db, paths } = connectRtdb();
   const ref = db.ref(paths.leader);
-  const result = await ref.transaction((current) => {
-    if (!current || current.nodeId !== nodeId) return; // mất ghế → abort
-    return { ...current, heartbeat: now(), publicUrl: publicUrl || current.publicUrl };
+  const snap = await ref.get();
+  const current = snap.val();
+  if (!current || current.nodeId !== nodeId) return false;
+  await ref.update({
+    heartbeat: now(),
+    publicUrl: valueOrNull(publicUrl || current.publicUrl),
   });
-  return result.committed;
+  return true;
 }
 
 // Chủ động nhường ghế (dùng trong graceful handoff).

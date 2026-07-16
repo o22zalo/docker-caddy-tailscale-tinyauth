@@ -1,3 +1,4 @@
+.secret
 .env
 public-url.txt
 *.log
