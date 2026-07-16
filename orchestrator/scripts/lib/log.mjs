@@ -18,14 +18,14 @@ function ts() {
 
 export function log(...args) {
   if (SILENT) return;
-  console.log(`[orchestrator ${ts()}]`, ...args.map((a) => (typeof a === "string" ? redact(a) : a)));
+  console.log(`[orchestrator ${ts()}]`, ...args.map((a) => redact(typeof a === "string" ? a : JSON.stringify(a))));
 }
 
 export function warn(...args) {
   if (SILENT) return;
-  console.warn(`[orchestrator ${ts()}] WARN`, ...args.map((a) => (typeof a === "string" ? redact(a) : a)));
+  console.warn(`[orchestrator ${ts()}] WARN`, ...args.map((a) => redact(typeof a === "string" ? a : JSON.stringify(a))));
 }
 
 export function error(...args) {
-  console.error(`[orchestrator ${ts()}] ERROR`, ...args.map((a) => (typeof a === "string" ? redact(a) : a)));
+  console.error(`[orchestrator ${ts()}] ERROR`, ...args.map((a) => redact(typeof a === "string" ? a : JSON.stringify(a))));
 }

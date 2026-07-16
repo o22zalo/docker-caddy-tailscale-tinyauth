@@ -65,6 +65,27 @@ async function findFreshSuccessor({ selfId }) {
   return candidates.length ? { id: candidates[0][0], node: candidates[0][1] } : null;
 }
 
+async function getElectionSnapshot() {
+  const { db, paths } = connectRtdb();
+  const [leaderSnap, nodesSnap] = await Promise.all([
+    db.ref(paths.leader).get(),
+    db.ref(paths.nodes).get(),
+  ]);
+  return {
+    at: new Date().toISOString(),
+    leader: leaderSnap.val() || null,
+    nodes: nodesSnap.val() || {},
+  };
+}
+
+async function logElectionSnapshot(label, extra = {}) {
+  try {
+    log(`Election snapshot: ${label}`, { ...extra, ...(await getElectionSnapshot()) });
+  } catch (e) {
+    warn(`Election snapshot failed (${label}): ${e.message}`);
+  }
+}
+
 async function main() {
   const identity = getNodeIdentity();
   const config = loadConfig();
@@ -90,6 +111,7 @@ async function main() {
     await reg.setState("ready", { publicUrl: process.env.ORCH_PUBLIC_URL || "" });
     const leader = await getLeader();
     log(`Stack ready. Current RTDB leader: ${describeLeader(leader)}`);
+    await logElectionSnapshot("stack-ready", { self: identity.nodeId });
   }
 
   const acquireInterval = num("ORCH_ACQUIRE_INTERVAL_SECONDS", config.acquire_interval_seconds || 5) * 1000;
@@ -109,11 +131,14 @@ async function main() {
       if (isLeader) {
         const leaderBeforeRelease = await getLeader();
         warn(`Signal ${sig}: stepping down from leader. RTDB before release: ${describeLeader(leaderBeforeRelease)}`);
+        await logElectionSnapshot("signal-before-release", { self: identity.nodeId, signal: sig, role: "leader" });
         await releaseLeadership({ nodeId: identity.nodeId });
         await reg.setState("stopped");
         warn(`Signal ${sig}: released leadership and marked node stopped.`);
+        await logElectionSnapshot("signal-after-release", { self: identity.nodeId, signal: sig, role: "leader" });
       } else {
         warn(`Signal ${sig}: standby node stopping. No leadership release needed.`);
+        await logElectionSnapshot("signal-standby-stop", { self: identity.nodeId, signal: sig, role: "standby" });
         await reg.setState("stopped");
       }
     } catch {}
@@ -140,10 +165,13 @@ async function main() {
           await reg.setState("serving");
           await pushEvent("leader.acquired", { term, nodeId: identity.nodeId });
           log(`Now LEADER (term=${term}). Serving traffic.`);
+          await logElectionSnapshot("leader-acquired", { self: identity.nodeId, term });
         } else if (blockedBy?.nodeId) {
           log(`Standby: leader still active (${describeLeader(blockedBy)} ttlMs=${ttlMs}). Waiting.`);
+          await logElectionSnapshot("standby-blocked", { self: identity.nodeId, blockedBy: blockedBy.nodeId, ttlMs });
         } else {
           log("Standby: no leader acquired yet. Waiting.");
+          await logElectionSnapshot("standby-no-leader", { self: identity.nodeId, ttlMs });
         }
       }
       await sleep(acquireInterval);
@@ -157,6 +185,7 @@ async function main() {
     });
     if (!held) {
       warn(`Lost leadership. Current RTDB leader: ${describeLeader(currentLeader)}. Reverting to standby.`);
+      await logElectionSnapshot("leader-lost", { self: identity.nodeId, replacedBy: currentLeader?.nodeId || null, previousTerm: term });
       isLeader = false;
       await reg.setState("ready");
       continue;
@@ -171,6 +200,7 @@ async function main() {
     if (successor && (handoffOnReady || overTime || process.env.ORCH_FORCE_HANDOFF === "1") && !handoffDone) {
       handoffDone = true;
       log(`Handoff triggered → successor=${successor.id} (overTime=${overTime})`);
+      await logElectionSnapshot("handoff-begin", { self: identity.nodeId, successor: successor.id, successorNode: successor.node, term, overTime });
       await reg.setState("draining");
       await pushEvent("handoff.begin", { successor: successor.id, term });
 
@@ -190,10 +220,12 @@ async function main() {
 
       // Nhường ghế: node kế nhiệm sẽ tryAcquire() và thắng.
       log(`Releasing leadership for successor=${successor.id}. Current leader before release: ${describeLeader(await getLeader())}`);
+      await logElectionSnapshot("handoff-before-release", { self: identity.nodeId, successor: successor.id, term });
       await releaseLeadership({ nodeId: identity.nodeId });
       await reg.setState("stopped");
       isLeader = false;
       log(`Handoff complete. Released term=${term}; successor=${successor.id} should acquire on next poll.`);
+      await logElectionSnapshot("handoff-complete", { self: identity.nodeId, successor: successor.id, term });
       await pushEvent("handoff.complete", { successor: successor.id, term });
       // Sau khi nhường, container sidecar có thể tự thoát để job kết thúc gọn.
       if (process.env.ORCH_EXIT_AFTER_HANDOFF === "1") process.exit(0);
