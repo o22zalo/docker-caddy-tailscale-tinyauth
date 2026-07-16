@@ -78,8 +78,20 @@ function login(timeout) {
   return code === "200" || code === "204";
 }
 
+function cookieHeader() {
+  if (!existsSync(COOKIE_FILE)) return "";
+  return readFileSync(COOKIE_FILE, "utf8")
+    .split(/\r?\n/)
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => line.split("\t"))
+    .filter((cols) => cols.length >= 7)
+    .map((cols) => `${cols[5]}=${cols[6]}`)
+    .join("; ");
+}
+
 function curlUrl(item, timeout, useCookie) {
-  const cookie = useCookie ? `-b "${COOKIE_FILE}"` : "";
+  const header = useCookie ? cookieHeader() : "";
+  const cookie = header ? `-H "Cookie: ${header}"` : "";
   const cmd = `curl -k -sS ${cookie} -o /dev/null -w "%{http_code}" --max-time ${timeout} "${item.url}"`;
   if (DRY_RUN) return log(`[DRY RUN] ${cmd}`);
   const code = sh(cmd) || "ERR";
