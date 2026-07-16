@@ -23,7 +23,8 @@ export async function run(ctx) {
   }
 
   log(`[hook:${name}] draining tunnel: stopping ${service} to hand over to ${ctx.successor}`);
-  stopService(service, { grace });
+  stopService(service, { grace, throwOnError: true });
+  if (isRunning(service)) throw new Error(`${service} vẫn running sau lệnh stop`);
   await pushEvent("handoff.cloudflared_stopped", {
     service,
     successor: ctx.successor,

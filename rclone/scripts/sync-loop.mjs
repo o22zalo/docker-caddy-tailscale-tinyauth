@@ -8,6 +8,7 @@ import { configFile, ensureLocal, entries, loadConfig, loadEnv, localContainerPa
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
 const SILENT = args.includes("--silent");
+const ONCE = args.includes("--once");
 const log = (...a) => { if (!SILENT) console.log(...a); };
 
 function runRclone(argv) {
@@ -46,8 +47,8 @@ async function syncOne(item, config, p) {
     if (stdout.trim()) log(`[${item.index}:${item.name}] ${stdout.trim()}`);
     return;
   }
-  console.error(`Rclone sync failed for ${item.index}:${item.name}.`);
-  console.error(redactSecrets(`${stdout}\n${stderr}`.trim()));
+  const detail = redactSecrets(`${stdout}\n${stderr}`.trim());
+  throw new Error(`Rclone sync failed for ${item.index}:${item.name}: ${detail}`);
 }
 
 async function main() {
@@ -57,19 +58,22 @@ async function main() {
   const items = entries(env, tags);
   const p = paths(env, config);
   if (items.length === 0) {
-    log("Rclone sync: no RCLONE_<index>_NAME entries; sleeping.");
-    setInterval(() => {}, 2147483647);
+    log(`Rclone sync: no RCLONE_<index>_NAME entries; ${ONCE || DRY_RUN ? "skip." : "sleeping."}`);
+    if (!ONCE && !DRY_RUN) setInterval(() => {}, 2147483647);
     return;
   }
   writeConfigs(items, p.runtimeRoot, DRY_RUN, log);
   log(`Rclone sync: ${items.length} item(s), concurrency=${Math.min(config.concurrency, items.length)}${tags.length ? `, tags=${tags.join(",")}` : ""}`);
   const runAll = () => mapLimit(items, config.concurrency, (item) => syncOne(item, config, p));
   await runAll();
-  if (DRY_RUN) return;
+  if (DRY_RUN || ONCE) return;
   for (const item of items) {
     const seconds = item.interval || config.interval_seconds;
     setInterval(() => syncOne(item, config, p), seconds * 1000);
   }
 }
 
-main();
+main().catch((e) => {
+  console.error(redactSecrets(e.stack || e.message));
+  process.exit(1);
+});

@@ -11,35 +11,37 @@
 #   - node: chạy toàn bộ script .mjs điều phối.
 #   - sudo: user SSH_<n>_* được cấp NOPASSWD:ALL → chạy MỌI lệnh (kể cả root).
 #
-# Base: node 20 alpine.
+# Base: Node 24 LTS trên Alpine 3.23 (Node 20 đã EOL 2026-04-30).
 # cloudflared không có trong Alpine stable repository; lấy binary từ image
 # chính thức, cùng version đang pin tại cloudflare/cloudflare.yml.
 # =============================================================================
 
 FROM cloudflare/cloudflared:2026.7.1 AS cloudflared
 
-FROM node:20-alpine
+FROM node:24-alpine3.23
 
 COPY --from=cloudflared /usr/local/bin/cloudflared /usr/local/bin/cloudflared
 
 RUN apk add --no-cache \
-  openssh-server \
-  openssh-client \
-  rsync \
-  rclone \
-  docker-cli \
-  docker-cli-compose \
-  sudo \
-  bash \
-  coreutils \
-  findutils \
-  curl \
-  tini \
-  && rm -rf /var/cache/apk/*
+      openssh-server \
+      openssh-client-default \
+      sshpass \
+      netcat-openbsd \
+      rsync \
+      rclone \
+      docker-cli \
+      docker-cli-compose \
+      sudo \
+      shadow \
+      bash \
+      coreutils \
+      findutils \
+      curl \
+      tini \
+    && rm -rf /var/cache/apk/*
 
-# Tailscale CLI (client) — dùng để resolve peer qua tailnet (LocalAPI).
-# Cài từ package alpine nếu có; nếu không, kênh tailscale sẽ báo reason rõ ràng.
-RUN apk add --no-cache tailscale || echo "WARN: tailscale-cli không cài được từ apk (kênh tailscale sẽ fallback)"
+# Tailscale chạy ở sidecar riêng. Nodesync gọi CLI bằng `docker exec tailscale`
+# và chuyển SSH qua SOCKS5 `tailscale:1055`; không cài tailscale APK tại đây.
 
 WORKDIR /app
 

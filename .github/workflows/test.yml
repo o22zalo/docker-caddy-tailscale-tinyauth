@@ -32,7 +32,19 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          npm ci --prefix nodesync --omit=dev
+          npm ci --prefix orchestrator --omit=dev
+
+      - name: Run orchestrator + nodesync regression tests
+        working-directory: .work/verify
+        run: |
+          node verify-election.mjs
+          node verify-nodesync.mjs
+          node verify-nodesync-scenarios.mjs
+          node verify-hold-gate.mjs
+          node verify-source-invariants.mjs
 
       - name: Compute Docker cache key
         run: node scripts/runners/cache-docker-build-github.mjs env
@@ -127,6 +139,7 @@ jobs:
         env:
           VERIFY_LEADER_TIMEOUT: "120"
           VERIFY_LEADER_INTERVAL: "5"
+          VERIFY_LEADER_STRICT: "1"
         run: node scripts/runners/verify-leader-whoami.mjs
 
       - name: Show public URL

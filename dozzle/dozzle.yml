@@ -35,7 +35,8 @@ services:
     labels:
       caddy: ${CADDY_DOZZLE_HOSTS:-${DOZZLE_HOSTS:-${DOZZLE_HOST:-http://dozzle.${DOMAIN:-localhost}, http://logs.${DOMAIN:-localhost}}}}
       caddy.reverse_proxy: "{{upstreams 8080}}"
-      caddy.import: tinyauth_forwarder *
+      caddy.import: nodesync_hold_gate *
+      caddy.import_1: tinyauth_forwarder *
     profiles:
       - dozzle
       - full

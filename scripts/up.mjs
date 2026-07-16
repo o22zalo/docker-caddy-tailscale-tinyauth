@@ -17,7 +17,7 @@ import { execSync, spawn } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { detectDocker, dockerCmd } from "./runners/_docker.mjs";
+import { detectDocker } from "./runners/_docker.mjs";
 import { envGet, parseEnv } from "./lib/env-utils.mjs";
 
 const args = process.argv.slice(2);
@@ -30,8 +30,9 @@ const ROOT = resolve(__dirname, "..");
 const ENV = resolve(ROOT, ".env");
 process.chdir(ROOT);
 
-const docker = detectDocker();
-if (!docker.available) { console.error("ERROR: Docker not found."); process.exit(1); }
+const docker = DRY_RUN ? { available: true, cmd: "docker", via: "dry-run" } : detectDocker();
+if (!docker.available) { console.error("ERROR: Docker daemon unavailable. Start Docker or use --dry-run."); process.exit(1); }
+const dc = (parts) => `${docker.cmd} ${parts}`;
 
 function run(cmd) {
   if (DRY_RUN) { log(`[DRY RUN] ${cmd}`); return; }
@@ -63,6 +64,18 @@ function hasRcloneConfig() {
   return Object.keys(env).some((key) => /^RCLONE_\d+_NAME$/.test(key));
 }
 
+function truthy(value) {
+  return ["1", "true", "yes", "on"].includes(String(value ?? "0").toLowerCase());
+}
+function getNodesyncConfig() {
+  const env = { ...parseEnv(ENV), ...process.env };
+  return {
+    enabled: truthy(env.SSH_ENABLE),
+    syncOnStart: truthy(env.NODESYNC_SYNC_ON_START),
+    tailscale: truthy(env.SSH_CHANNEL_TAILSCALE_ENABLE ?? "1"),
+  };
+}
+
 function firstIndexedName(prefix, key) {
   const env = { ...parseEnv(ENV), ...process.env };
   const indexes = Object.keys(env).map((name) => name.match(new RegExp(`^${prefix}_(\\d+)_${key}$`))?.[1]).filter(Boolean).sort((a, b) => Number(a) - Number(b));
@@ -80,6 +93,23 @@ function ensureProfile(name) {
 
 function resolveVolumeRoot(value, fallback) {
   return resolve(ROOT, value || fallback);
+}
+function compose(command) {
+  const files = mode === "ci" ? "-f docker-compose.yml -f docker-compose.ci.yml " : "";
+  return dc(`compose ${files}${command}`);
+}
+async function waitNodesync(timeoutMs = 90_000) {
+  if (DRY_RUN) { log("[DRY RUN] chờ nodesync healthy"); return; }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const status = execSync(dc("inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' nodesync"), { encoding: "utf8" }).trim();
+      if (status === "healthy") return;
+      if (["unhealthy", "exited"].includes(status)) throw new Error(`nodesync ${status}`);
+    } catch (e) { if (/nodesync (unhealthy|exited)/.test(e.message)) throw e; }
+    await new Promise((done) => setTimeout(done, 2_000));
+  }
+  throw new Error("nodesync không healthy sau 90s");
 }
 
 // Validate .env
@@ -131,6 +161,11 @@ if (hasRcloneConfig()) {
   ensureProfile("rclone");
   process.env.RCLONE_CONTAINER_NAME = firstIndexedName("RCLONE", "NAME");
 }
+const nodesync = getNodesyncConfig();
+if (nodesync.enabled) {
+  ensureProfile("nodesync");
+  if (nodesync.tailscale) ensureProfile("tailscale");
+}
 process.env.DOCKER_VOLUME_RUNTIME_ABS = resolveVolumeRoot(envGet(ENV, "DOCKER_VOLUME_RUNTIME"), "ci-runtime");
 process.env.DOCKER_VOLUME_DATA_ABS = resolveVolumeRoot(envGet(ENV, "DOCKER_VOLUME_DATA"), "ci-data");
 
@@ -140,16 +175,23 @@ await Promise.all([
   runPrefixed("litestream", `node litestream/scripts/restore.mjs${SILENT ? " --silent" : ""}`),
   runPrefixed("rclone", `node rclone/scripts/pull.mjs${SILENT ? " --silent" : ""}`),
 ]);
+if (nodesync.enabled && nodesync.syncOnStart) {
+  const services = nodesync.tailscale ? "tailscale nodesync" : "nodesync";
+  run(compose(`up -d ${services}`));
+  await waitNodesync();
+  run(compose(`exec -T nodesync node scripts/sync.mjs${SILENT ? " --silent" : ""}`));
+  log("Nodesync pre-start hoàn tất.");
+}
 
 if (mode === "ci") {
   log("Starting stack in CI / quick-tunnel mode...");
-  run(dockerCmd("compose -f docker-compose.yml -f docker-compose.ci.yml up -d --remove-orphans"));
+  run(dc("compose -f docker-compose.yml -f docker-compose.ci.yml up -d --remove-orphans"));
 } else {
   log("Starting stack...");
-  run(dockerCmd("compose up -d --remove-orphans"));
+  run(dc("compose up -d --remove-orphans"));
 }
 
-run(dockerCmd("compose ps"));
+run(dc("compose ps"));
 log("");
 log("Active profiles tip: echo $COMPOSE_PROFILES or check .env");
 if (hasLitestreamConfig() || hasRcloneConfig()) log("Optional profiles were auto-enabled from indexed env blocks.");

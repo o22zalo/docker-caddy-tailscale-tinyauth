@@ -20,11 +20,11 @@
 //   VERIFY_LEADER_TIMEOUT   tổng thời gian chờ (giây), default 180
 //   VERIFY_LEADER_INTERVAL  chu kỳ poll (giây), default 5
 //   PUBLIC_URL / DOMAIN     dùng để dựng URL whoami nếu cần
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { detectDocker, dockerCmd } from "./_docker.mjs";
+import { detectDocker } from "./_docker.mjs";
 import { envGet } from "../lib/env-utils.mjs";
 
 const args = process.argv.slice(2);
@@ -40,9 +40,14 @@ process.chdir(ROOT);
 const ENV = resolve(ROOT, ".env");
 const TIMEOUT = parseInt(process.env.VERIFY_LEADER_TIMEOUT || "180", 10);
 const INTERVAL = parseInt(process.env.VERIFY_LEADER_INTERVAL || "5", 10);
+if (!Number.isInteger(TIMEOUT) || TIMEOUT < 1 || !Number.isInteger(INTERVAL) || INTERVAL < 1) {
+  err("ERROR: VERIFY_LEADER_TIMEOUT/INTERVAL phải là số nguyên dương.");
+  process.exit(1);
+}
 
-const docker = detectDocker();
-if (!docker.available) { err("ERROR: Docker not found."); process.exit(1); }
+const docker = DRY_RUN ? { available: true, cmd: "docker" } : detectDocker();
+if (!docker.available) { err("ERROR: Docker daemon unavailable."); process.exit(1); }
+const dc = (parts) => `${docker.cmd} ${parts}`;
 
 function sh(cmd) {
   try { return execSync(cmd, { cwd: ROOT, stdio: ["pipe", "pipe", "pipe"], timeout: 30000 }).toString().trim(); }
@@ -69,7 +74,7 @@ function resolveWhoamiUrl() {
 
 // Lấy leader hiện tại từ RTDB qua orchestrator container.
 function getLeaderNodeId() {
-  const out = sh(dockerCmd("compose exec -T orchestrator node scripts/print-leader.mjs --silent"));
+  const out = sh(dc("compose exec -T orchestrator node scripts/print-leader.mjs --silent"));
   if (!out) return null;
   try {
     const j = JSON.parse(out.split(/\r?\n/).filter(Boolean).pop());
@@ -79,7 +84,11 @@ function getLeaderNodeId() {
 
 // Lấy "Name:" mà whoami echo (chính là node id runner đang phục vụ).
 function getWhoamiName(url) {
-  const body = sh(`curl -sS --max-time 15 "${url}/"`);
+  let body = "";
+  try {
+    const endpoint = new URL("/", url).toString();
+    body = execFileSync("curl", ["-sS", "--max-time", "15", endpoint], { encoding: "utf8", timeout: 20000 }).trim();
+  } catch { return null; }
   if (!body) return null;
   const m = body.match(/^Name:\s*(.+)$/m);
   return m ? m[1].trim() : null;

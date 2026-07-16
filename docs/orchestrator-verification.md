@@ -98,8 +98,11 @@ SO SÁNH ĐỐI CHIẾU: ✅ TRÙNG KHỚP
   → Request public đang được phục vụ ĐÚNG bởi leader hiện tại.
 ```
 
-`whoami` echo `Name:` = node id nhờ `WHOAMI_NAME: ${WHOAMI_NAME:-${ORCH_NODE_ID:-whoami}}`
-trong `whoami/whoami.yml`.
+`setup-env.mjs` materialize `ORCH_NODE_ID` ổn định trước khi Compose render và
+ghi cùng giá trị vào `.env`/`GITHUB_ENV`. Vì vậy orchestrator và
+`WHOAMI_NAME: ${WHOAMI_NAME:-${ORCH_NODE_ID:-whoami}}` nhận đúng cùng ID.
+Workflow đặt `VERIFY_LEADER_STRICT=1`: quá timeout mà không trùng sẽ fail CI;
+khi `CONSUL_ENABLE!=1`, script skip thành công vì không có leader để đối chiếu.
 
 ---
 
@@ -125,7 +128,16 @@ Khi Tailscale chưa sẵn (thiếu authkey / chưa join), `tailscale.available=f
 
 ---
 
-## 6. Ràng buộc kiểm chứng cục bộ
+## 6. An toàn khi handoff lỗi
+
+`upload-data` và `stop-cloudflared` là critical hooks. Upload mặc định gọi
+`rclone/scripts/sync-loop.mjs --once` nếu service rclone đang chạy; custom
+`ORCH_UPLOAD_CMD` non-zero cũng là lỗi. Cloudflared phải dừng thật sau lệnh stop.
+Nếu bất kỳ critical hook nào lỗi, orchestrator ghi `handoff.aborted`, trả state
+về `serving`, giữ leadership và retry sau; tuyệt đối không release leader với dữ
+liệu/tunnel ở trạng thái chưa hoàn tất.
+
+## 7. Ràng buộc kiểm chứng cục bộ
 
 - Election/handoff đã được **execute thật** bằng mock RTDB (`.work/verify/verify-election.mjs`
   → PASS: no split-brain, term 1→2 monotonic, 9-dòng handoff-log đúng thứ tự).

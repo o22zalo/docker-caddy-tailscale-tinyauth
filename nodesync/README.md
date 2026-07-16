@@ -21,7 +21,9 @@ sang kênh kế tiếp, có log rõ **lý do fallback**.
 
 ```dotenv
 SSH_ENABLE=1
-COMPOSE_PROFILES=full          # hoặc: core,nodesync
+COMPOSE_PROFILES=full          # hoặc: core,nodesync,tailscale
+# Chỉ đặt =1 trên node02 (node nhận dữ liệu); node01 để 0.
+NODESYNC_SYNC_ON_START=1
 
 # Multi-user (tạo nhiều user theo index)
 SSH_1_USER=sync
@@ -75,12 +77,11 @@ Secret (`PASS`, `PRIVATE_KEY`) mask base64 theo qui tắc repo (`base64 -w0`), v
   group `docker` (nếu có) để chạy lệnh **trong/ngoài docker** qua socket mount.
   Container chạy **root** (`user: "0:0"`) để có quyền cao nhất.
 
-- **DNS resolve Tailscale (đúng tài liệu):** stack dùng **userspace mode** +
-  `--accept-dns=false` ⇒ MagicDNS `.ts.net` **không** resolve qua
-  `/etc/resolv.conf`. `nodesync` resolve peer bằng **LocalAPI**:
-  1. `tailscale status --json` → map hostname/dnsName → IP `100.x.y.z` (ưu tiên).
-  2. `tailscale ip -4 <host>`.
-  3. Fallback IP tĩnh `NODESYNC_PEER_HOST`.
+- **Tailscale userspace:** container `tailscale` expose SOCKS5 nội bộ tại
+  `tailscale:1055`. `nodesync` đọc LocalAPI bằng
+  `docker exec tailscale tailscale status --json`, map hostname → IP tailnet,
+  rồi SSH qua `nc -x tailscale:1055 %h %p`. Không giả định container nodesync có
+  route tailnet trực tiếp. Nếu SSH probe thất bại, tiếp tục Cloudflare/Hybrid.
   (Tài liệu: [quad100](https://tailscale.com/docs/reference/quad100),
    [magicdns](https://tailscale.com/docs/features/magicdns),
    [userspace](https://tailscale.com/docs/concepts/userspace-networking),
@@ -90,16 +91,19 @@ Secret (`PASS`, `PRIVATE_KEY`) mask base64 theo qui tắc repo (`base64 -w0`), v
 
 ## Luồng sync (node02 ← node01)
 
-1. node02 boot → (đã pull remote store qua litestream/rclone).
-2. `sync.mjs`: resolve node01 (fallback kênh) → **diff** từng `sync_path` bằng
-   checksum qua SSH.
+1. Node02 bật `NODESYNC_SYNC_ON_START=1`; runner pull remote store trước.
+2. Runner start sidecar, chờ healthy, rồi `sync.mjs` thử **SSH probe thật** theo
+   fallback và diff từng `sync_path` bằng checksum + metadata.
 3. Nếu khác: yêu cầu node01 **BẬT treo request** (503 + Retry-After) → **rsync**
    trực tiếp node01→node02 → node01 **TẮT treo**.
 4. Báo cáo (file nào, thời gian, kích thước) → app start tiếp.
 
 **Treo request** (mặc định `retry-after`): `hold-requests.mjs on` tạo file cờ
 `ci-runtime/nodesync/hold.flag`; khi tồn tại, node01 trả `503 Retry-After` để
-client/node02 retry sau `NODESYNC_RETRY_AFTER_SECONDS`. Sync xong → xoá cờ.
+client/node02 retry sau `NODESYNC_RETRY_AFTER_SECONDS`. `hold-gate.mjs` trả
+HTTP 503 thật và Caddy gọi gate trước reverse proxy. Sync xong → xoá cờ trong
+`finally`. Mặc định chỉ sync `ci-data`; không sync toàn `ci-runtime` vì chứa
+identity/key/state riêng từng node.
 
 ---
 
@@ -122,4 +126,4 @@ Tất cả script hỗ trợ `--dry-run` và `--silent` (theo convention repo).
 
 Xem `docs/nodesync-verification.md` — hướng dẫn triển khai + kiểm chứng bằng
 `ls` / checksum / size / time, kèm kết quả execute thật (rsync + verify-integrity
-qua 13 kịch bản).
+qua 15 kịch bản, gồm permission và symlink safety).

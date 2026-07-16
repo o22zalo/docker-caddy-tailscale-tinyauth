@@ -75,9 +75,11 @@ COMPOSE_PROFILES=core
 
 `litestream` và `rclone` không cần thêm vào `COMPOSE_PROFILES` khi dùng
 `node scripts/up.mjs` hoặc CI: helper tự bật nếu `.env` có
-`LITESTREAM_<index>_SERVICE` hoặc `RCLONE_<index>_NAME`. Nếu chạy
-`docker compose up` trực tiếp, Compose không tự suy luận được, nên phải tự thêm
-profile hoặc dùng helper.
+`LITESTREAM_<index>_SERVICE` hoặc `RCLONE_<index>_NAME`. CI runner cũng tự bật
+`nodesync` khi `SSH_ENABLE=1`, và tự bật `tailscale` nếu channel Tailscale được
+bật. Chỉ node nhận dữ liệu đặt `NODESYNC_SYNC_ON_START=1`; khi đó restore/pull →
+sync phải thành công trước khi app stack start. Mặc định chỉ sync `ci-data`,
+không sync toàn `ci-runtime` vì chứa identity/key/state riêng từng node.
 
 ```bash
 make profiles   # xem profile / service hiện tại

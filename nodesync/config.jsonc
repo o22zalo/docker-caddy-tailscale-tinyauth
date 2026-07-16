@@ -15,10 +15,12 @@
   // ── Đường dẫn dữ liệu cần đồng bộ (trong workspace mount) ───────────────
   // Tương đối so với thư mục workspace (SSH_WORKSPACE, mặc định /workspace).
   // node02 sẽ đồng bộ các path này TỪ node01 về khi có khác biệt.
-  "sync_paths": ["ci-data", "ci-runtime"],
+  // Mặc định KHÔNG sync ci-runtime: thư mục đó chứa identity/key/state riêng
+  // từng node (Tailscale, Caddy, SSH host keys). Chỉ opt-in path runtime cụ thể.
+  "sync_paths": ["ci-data"],
 
   // rsync options mặc định (an toàn, giữ quyền + thời gian + checksum để so).
-  "rsync_options": ["-az", "--delete", "--checksum", "--stats", "--human-readable"],
+  "rsync_options": ["-az", "--delete", "--checksum", "--safe-links", "--stats", "--human-readable"],
 
   // ── Treo request khi đang sync (YÊU CẦU) ───────────────────────────────
   // Mặc định trả 503 + Retry-After (đơn giản, chắc chắn). Client/node02 retry

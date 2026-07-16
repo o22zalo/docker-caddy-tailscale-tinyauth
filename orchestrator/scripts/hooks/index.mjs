@@ -52,7 +52,10 @@ function makeShellHook(step) {
 export function loadConfig() {
   const file = resolve(__dirname, "..", "..", "config.jsonc");
   const defaults = {
-    handoff_pipeline: ["upload-data", "stop-cloudflared"],
+    handoff_pipeline: [
+      { name: "upload-data", critical: true },
+      { name: "stop-cloudflared", critical: true },
+    ],
     poll_interval_seconds: 5,
     acquire_interval_seconds: 5,
     handoff_on_successor_ready: true,

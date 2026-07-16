@@ -40,7 +40,8 @@ services:
     labels:
       caddy: ${CADDY_WEBSSH_HOSTS:-${WEBSSH_HOSTS:-http://ttyd.${DOMAIN:-localhost}, http://webssh.${DOMAIN:-localhost}}}
       caddy.reverse_proxy: "{{upstreams 7681}}"
-      caddy.import: tinyauth_forwarder *
+      caddy.import: nodesync_hold_gate *
+      caddy.import_1: tinyauth_forwarder *
     profiles:
       - webssh
       - full

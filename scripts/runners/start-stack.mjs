@@ -9,7 +9,7 @@
 import { execSync, spawn } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { detectDocker, dockerCmd } from "./_docker.mjs";
+import { detectDocker } from "./_docker.mjs";
 import { envGet, parseEnv } from "../lib/env-utils.mjs";
 import { redactSecrets } from "../lib/redact-utils.mjs";
 
@@ -25,11 +25,12 @@ const MODE = process.env.MODE || "quick";
 
 process.chdir(ROOT);
 
-const docker = detectDocker();
+const docker = DRY_RUN ? { available: true, cmd: "docker", via: "dry-run" } : detectDocker();
 if (!docker.available) {
-  console.error("ERROR: Docker not found. Install Docker Desktop or Docker in WSL.");
+  console.error("ERROR: Docker daemon unavailable. Start Docker Desktop/Engine, or use --dry-run.");
   process.exit(1);
 }
+const dc = (parts) => `${docker.cmd} ${parts}`;
 log(`Docker: ${docker.via} (${docker.cmd})`);
 
 function run(cmd) {
@@ -66,10 +67,19 @@ function hasRcloneConfig(envFile) {
 }
 
 // nodesync bật khi SSH_ENABLE=1 (đồng bộ dữ liệu giữa node qua SSH).
-function hasNodesyncConfig(envFile) {
+function envTruthy(value) {
+  return ["1", "true", "yes", "on"].includes(String(value ?? "0").toLowerCase());
+}
+
+function nodesyncConfig(envFile) {
   const env = { ...parseEnv(envFile), ...process.env };
-  const v = String(env.SSH_ENABLE ?? "0").toLowerCase();
-  return v === "1" || v === "true" || v === "yes";
+  return {
+    enabled: envTruthy(env.SSH_ENABLE),
+    syncOnStart: envTruthy(env.NODESYNC_SYNC_ON_START),
+    tailscaleChannel: envTruthy(env.SSH_CHANNEL_TAILSCALE_ENABLE ?? "1"),
+    cloudflareChannel: envTruthy(env.SSH_CHANNEL_CLOUDFLARE_ENABLE),
+    hybridChannel: envTruthy(env.SSH_CHANNEL_HYBRID_ENABLE),
+  };
 }
 
 function firstIndexedName(envFile, prefix, key) {
@@ -91,6 +101,41 @@ function resolveVolumeRoot(value, fallback) {
   return resolve(ROOT, value || fallback);
 }
 
+function composeArgs(command) {
+  const files = MODE === "named" ? "" : "-f docker-compose.yml -f docker-compose.ci.yml ";
+  return dc(`compose ${files}${command}`);
+}
+
+async function waitForHealthy(service, timeoutMs = 90_000) {
+  if (DRY_RUN) { log(`[DRY RUN] chờ ${service} healthy`); return; }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const status = sh(dc(`inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' ${service}`));
+      if (status === "healthy" || status === "running") return;
+      if (status === "unhealthy" || status === "exited") throw new Error(`${service} status=${status}`);
+    } catch (e) {
+      if (/status=(unhealthy|exited)/.test(e.message)) throw e;
+    }
+    await new Promise((done) => setTimeout(done, 2_000));
+  }
+  throw new Error(`${service} không healthy sau ${timeoutMs / 1000}s`);
+}
+
+async function waitForTailscale(timeoutMs = 60_000) {
+  if (DRY_RUN) { log("[DRY RUN] chờ tailscale LocalAPI sẵn sàng"); return true; }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const output = sh(dc("exec tailscale tailscale status --json"));
+      const status = JSON.parse(output);
+      if (status?.Self?.Online || status?.BackendState === "Running") return true;
+    } catch {}
+    await new Promise((done) => setTimeout(done, 2_000));
+  }
+  return false;
+}
+
 // chmod scripts
 try { run("bash -c 'chmod +x scripts/*.sh */scripts/*.sh 2>/dev/null || chmod +x scripts/*.sh'"); } catch {}
 
@@ -105,9 +150,11 @@ if (hasRcloneConfig(envFile)) {
   ensureProfile("rclone", envFile);
   process.env.RCLONE_CONTAINER_NAME = firstIndexedName(envFile, "RCLONE", "NAME");
 }
-if (hasNodesyncConfig(envFile)) {
+const nodesync = nodesyncConfig(envFile);
+if (nodesync.enabled) {
   ensureProfile("nodesync", envFile);
-  log("Ensuring nodesync profile is enabled (SSH_ENABLE=1)");
+  if (nodesync.tailscaleChannel) ensureProfile("tailscale", envFile);
+  log(`Nodesync enabled; sync-on-start=${nodesync.syncOnStart}; tailscale-channel=${nodesync.tailscaleChannel}`);
 }
 process.env.DOCKER_VOLUME_RUNTIME_ABS = resolveVolumeRoot(envGet(envFile, "DOCKER_VOLUME_RUNTIME"), "ci-runtime");
 process.env.DOCKER_VOLUME_DATA_ABS = resolveVolumeRoot(envGet(envFile, "DOCKER_VOLUME_DATA"), "ci-data");
@@ -118,14 +165,28 @@ await Promise.all([
   runPrefixed("rclone", `node rclone/scripts/pull.mjs${SILENT ? " --silent" : ""}`),
 ]);
 
+// Node nhận dữ liệu: start transport/SSH sidecars trước, sync xong mới start app.
+if (nodesync.enabled && nodesync.syncOnStart) {
+  const prestartServices = nodesync.tailscaleChannel ? "tailscale nodesync" : "nodesync";
+  run(composeArgs(`up -d ${prestartServices}`));
+  await waitForHealthy("nodesync");
+  if (nodesync.tailscaleChannel && !(await waitForTailscale())) {
+    const hasFallback = nodesync.cloudflareChannel || nodesync.hybridChannel;
+    if (!hasFallback) throw new Error("Tailscale chưa sẵn sàng và không có SSH channel fallback");
+    err("WARN: Tailscale chưa sẵn sàng; sync sẽ thử Cloudflare/Hybrid fallback.");
+  }
+  run(composeArgs(`exec -T nodesync node scripts/sync.mjs${SILENT ? " --silent" : ""}`));
+  log("Nodesync pre-start hoàn tất; tiếp tục start app stack.");
+}
+
 // Start stack
 if (MODE === "named") {
-  run(dockerCmd("compose up -d --remove-orphans"));
+  run(dc("compose up -d --remove-orphans"));
 } else {
   log("Resolved cloudflared service (must use --url, not run-with-token):");
   if (!DRY_RUN) {
     try {
-      const cfg = sh(dockerCmd("compose -f docker-compose.yml -f docker-compose.ci.yml config"));
+      const cfg = sh(dc("compose -f docker-compose.yml -f docker-compose.ci.yml config"));
       const block = cfg.split("\n");
       let printing = false;
       for (const line of block) {
@@ -135,10 +196,10 @@ if (MODE === "named") {
       }
     } catch {}
   }
-  run(dockerCmd("compose -f docker-compose.yml -f docker-compose.ci.yml up -d --remove-orphans"));
+  run(dc("compose -f docker-compose.yml -f docker-compose.ci.yml up -d --remove-orphans"));
 }
 
-run(dockerCmd("compose ps"));
+run(dc("compose ps"));
 
 if (DRY_RUN) {
   log("[DRY RUN] Would check cloudflared is running after 3s");
@@ -148,11 +209,11 @@ if (DRY_RUN) {
 // Fail fast if cloudflared is not running
 execSync("sleep 3", { stdio: "inherit" });
 try {
-  const running = sh(dockerCmd("compose ps --status running --services"));
+  const running = sh(dc("compose ps --status running --services"));
   if (!running.split("\n").includes("cloudflared")) throw new Error("not running");
 } catch {
   err("ERROR: cloudflared is not running after up");
-  try { run(dockerCmd("compose ps -a")); } catch {}
-  try { run(dockerCmd("compose logs --no-color cloudflared")); } catch {}
+  try { run(dc("compose ps -a")); } catch {}
+  try { run(dc("compose logs --no-color cloudflared")); } catch {}
   process.exit(1);
 }

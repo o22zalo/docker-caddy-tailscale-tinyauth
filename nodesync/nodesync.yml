@@ -45,10 +45,17 @@ services:
       # State ssh host keys (giữ qua restart).
       - ${DOCKER_VOLUME_RUNTIME_ABS:-../ci-runtime}/nodesync/ssh:/etc/ssh
     working_dir: /app
-    # Mở port SSH ra host (tuỳ chọn) — dùng khi test/kết nối trực tiếp.
-    # Named tunnel/tailnet thường KHÔNG cần publish; bật khi cần host access.
-    ports:
-      - "${SSH_HOST_PORT:-2222}:22"
+    expose:
+      - "22"
+      - "8088"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8088/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    # Không publish SSH ra host mặc định. Tailscale/Cloudflare đi qua proxy nội bộ;
+    # nếu cần direct-host test, thêm override Compose `ports: ["2222:22"]`.
     networks:
       - proxy
     profiles:

@@ -78,9 +78,9 @@ export function isRunning(service) {
   return out.split(/\r?\n/).map((s) => s.trim()).includes(service);
 }
 
-export function stopService(service, { grace = 35 } = {}) {
+export function stopService(service, { grace = 35, throwOnError = true } = {}) {
   log(`Stopping service: ${service} (grace ${grace}s)`);
-  return compose(["stop", "-t", String(grace), service], { throwOnError: false });
+  return compose(["stop", "-t", String(grace), service], { throwOnError, timeout: (grace + 30) * 1000 });
 }
 
 // Xem dữ liệu toàn repo/volume — liệt kê cây thư mục 1 cấp + kích thước.

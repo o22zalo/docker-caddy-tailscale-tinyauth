@@ -40,8 +40,8 @@ export function loadConfig() {
   const file = resolve(__dirname, "..", "..", "config.jsonc");
   const defaults = {
     channel_priority: ["tailscale", "cloudflare", "hybrid"],
-    sync_paths: ["ci-data", "ci-runtime"],
-    rsync_options: ["-az", "--delete", "--checksum", "--stats", "--human-readable"],
+    sync_paths: ["ci-data"],
+    rsync_options: ["-az", "--delete", "--checksum", "--safe-links", "--stats", "--human-readable"],
     hold: { mode: "retry-after", retry_after_seconds: 15, flag_file: "ci-runtime/nodesync/hold.flag" },
     sshd: { port: 22, allow_all_commands: true, password_authentication: true, permit_root_login: true },
     ssh_connect_timeout_seconds: 10,
@@ -61,7 +61,11 @@ export function loadConfig() {
     cfg.sync_paths = process.env.NODESYNC_SYNC_PATHS.split(",").map((s) => s.trim()).filter(Boolean);
   }
   if (process.env.NODESYNC_RETRY_AFTER_SECONDS) {
-    cfg.hold = { ...cfg.hold, retry_after_seconds: Number(process.env.NODESYNC_RETRY_AFTER_SECONDS) };
+    const retryAfter = Number(process.env.NODESYNC_RETRY_AFTER_SECONDS);
+    if (!Number.isInteger(retryAfter) || retryAfter < 1 || retryAfter > 3600) {
+      throw new Error("NODESYNC_RETRY_AFTER_SECONDS phải là số nguyên 1..3600");
+    }
+    cfg.hold = { ...cfg.hold, retry_after_seconds: retryAfter };
   }
   return cfg;
 }
@@ -83,6 +87,13 @@ export function collectSshUsers(env = process.env) {
     const p = (suffix) => env[`SSH_${idx}_${suffix}`];
     const user = p("USER");
     if (!user) continue;
+    if (!/^[a-z_][a-z0-9_-]{0,31}$/.test(user)) {
+      throw new Error(`SSH_${idx}_USER không hợp lệ: chỉ cho phép [a-z_][a-z0-9_-]{0,31}`);
+    }
+    const shell = p("SHELL") || "/bin/bash";
+    const uid = p("UID") || null;
+    if (!shell.startsWith("/") || shell.includes("..")) throw new Error(`SSH_${idx}_SHELL không hợp lệ`);
+    if (uid != null && !/^\d+$/.test(uid)) throw new Error(`SSH_${idx}_UID phải là số`);
     users.push({
       index: idx,
       user,
@@ -91,10 +102,9 @@ export function collectSshUsers(env = process.env) {
       privateKey: maybeB64(p("PRIVATE_KEY"), truthy(p("PRIVATE_KEY_B64"))),
       // Quyền: mặc định privileged (sudo NOPASSWD, chạy mọi lệnh) theo yêu cầu.
       privileged: truthy(p("PRIVILEGED"), "1"),
-      // Shell mặc định.
-      shell: p("SHELL") || "/bin/bash",
-      // uid tuỳ chọn.
-      uid: p("UID") || null,
+      // Shell/uid đã validate ở trên.
+      shell,
+      uid,
     });
   }
   return users;

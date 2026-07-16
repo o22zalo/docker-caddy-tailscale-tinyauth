@@ -39,7 +39,8 @@ services:
     labels:
       caddy: ${CADDY_WHOAMI_HOST:-${WHOAMI_HOST:-http://whoami.${DOMAIN:-localhost}}}
       caddy.reverse_proxy: "{{upstreams 80}}"
-      caddy.import: whoami_tinyauth_forwarder *
+      caddy.import: nodesync_hold_gate *
+      caddy.import_1: whoami_tinyauth_forwarder *
     profiles:
       - whoami
       - core

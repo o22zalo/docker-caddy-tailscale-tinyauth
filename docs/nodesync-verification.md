@@ -1,155 +1,119 @@
-# nodesync — hướng dẫn triển khai & kiểm chứng thực tế
+# nodesync — triển khai và kiểm chứng
 
-Tài liệu này hướng dẫn **triển khai** dịch vụ `nodesync` và **kiểm chứng** đồng bộ
-dữ liệu giữa 2 node bằng `ls` / checksum / size / time, kèm **kết quả execute thật**.
+## 1. Cấu hình theo vai trò
 
----
-
-## 1. Triển khai
-
-### 1.1 Cấu hình `.env`
+Cả hai node bật SSH server:
 
 ```dotenv
 SSH_ENABLE=1
-COMPOSE_PROFILES=full
-
-# Multi-user
 SSH_1_USER=sync
-SSH_1_PASS_B64=1
-SSH_1_PASS=c3luY3Bhc3M=          # base64 -w0 của "syncpass"
 SSH_1_PUBLIC_KEY=ssh-ed25519 AAAA... sync@ci
+SSH_1_PRIVATE_KEY_B64=1
+SSH_1_PRIVATE_KEY=<base64-private-key>
 SSH_1_PRIVILEGED=1
+```
 
-# Kênh + fallback (Tailscale → Cloudflare → Hybrid)
-SSH_CHANNEL_TAILSCALE_ENABLE=1
-SSH_CHANNEL_HYBRID_ENABLE=1
+Chỉ **node02 (node nhận dữ liệu)** bật sync trước startup:
 
-# Peer node01
-NODESYNC_PEER_TAILSCALE_HOST=proxy-stack-a
-NODESYNC_PEER_HOST=node01
+```dotenv
+NODESYNC_SYNC_ON_START=1
 NODESYNC_PEER_USER=sync
-NODESYNC_SYNC_PATHS=ci-data,ci-runtime
+NODESYNC_PEER_TAILSCALE_HOST=proxy-stack-a
+NODESYNC_PEER_HOST=<direct-fallback-host>
+SSH_CHANNEL_TAILSCALE_ENABLE=1
+SSH_CHANNEL_CLOUDFLARE_ENABLE=0
+SSH_CHANNEL_HYBRID_ENABLE=1
+NODESYNC_SYNC_PATHS=ci-data
 ```
 
-### 1.2 Khởi động
+Node01 để `NODESYNC_SYNC_ON_START=0` hoặc không khai báo. Không dùng
+`NODESYNC_SYNC_PATHS=ci-runtime`: thư mục runtime chứa Tailscale identity, Caddy
+state và SSH host keys riêng từng node. Chỉ opt-in một runtime subpath nếu đã
+xác nhận nó thật sự có thể dùng chung.
+
+## 2. Thứ tự startup đã hiện thực
+
+`scripts/runners/start-stack.mjs` thực hiện:
+
+1. Litestream restore và rclone pull.
+2. Nếu `SSH_ENABLE=1` và `NODESYNC_SYNC_ON_START=1`: start `nodesync`; start
+   `tailscale` nếu channel Tailscale bật.
+3. Chờ `nodesync` healthy.
+4. Chạy `node scripts/sync.mjs` trong container; lỗi sync làm startup thất bại.
+5. Chỉ khi sync thành công mới start toàn app stack.
+
+Kiểm tra kế hoạch mà không cần Docker daemon:
 
 ```bash
-COMPOSE_PROFILES=full docker compose up -d nodesync
-docker compose logs -f nodesync
+SSH_ENABLE=1 SSH_1_USER=sync \
+SSH_CHANNEL_TAILSCALE_ENABLE=0 SSH_CHANNEL_HYBRID_ENABLE=1 \
+NODESYNC_PEER_HOST=node01 NODESYNC_SYNC_ON_START=1 \
+node scripts/runners/start-stack.mjs --dry-run
 ```
 
----
+## 3. Kênh kết nối và fallback
 
-## 2. Log tiêu biểu ở từng node
+- **Tailscale:** `tailscaled` chạy userspace trong sidecar `tailscale`; sidecar
+  mở SOCKS5 nội bộ tại `tailscale:1055`. Nodesync đọc peer bằng
+  `docker exec tailscale tailscale status --json`, rồi SSH qua
+  `nc -x tailscale:1055 %h %p`.
+- **Cloudflare:** `cloudflared access ssh --hostname <host>` làm ProxyCommand.
+- **Hybrid:** host/IP trực tiếp.
 
-### node01 (nguồn — leader)
-```
-[nodesync ...] === NODESYNC entrypoint ===
-[nodesync ...] nodesync BẬT. Số user cấu hình: 1 [sync]
-[nodesync ...] Đã ghi /etc/ssh/sshd_config theo config.jsonc
-[nodesync ...] Đã tạo SSH host keys
-[nodesync ...] Tạo user "sync" (index=1, privileged=true)
-[nodesync ...]   đã đặt password cho "sync" (giá trị ẩn)
-[nodesync ...]   ghi authorized_keys cho "sync"
-[nodesync ...]   cấp sudo NOPASSWD:ALL cho "sync" (chạy MỌI lệnh)
-[nodesync ...] Khởi động sshd foreground trên port 22...
-```
-Khi được node02 gọi bật treo:
-```
-[nodesync ...] Bật treo request (mode=retry-after, Retry-After=15s)
-[nodesync ...] Đã tạo cờ treo → Caddy/node sẽ trả 503 + Retry-After: 15
-... (sau khi node02 sync xong) ...
-[nodesync ...] Đã xoá cờ treo → node phục vụ request bình thường trở lại.
-```
+Mỗi kênh phải qua cả **resolve** và **SSH probe**. Resolve được nhưng SSH/auth
+thất bại vẫn fallback sang kênh tiếp theo.
 
-### node02 (đích — vừa boot, chạy `sync.mjs`)
-```
-[nodesync ...] === NODESYNC: bắt đầu luồng đồng bộ node02 ← node01 ===
-[nodesync ...] workspace=/workspace sync_paths=[ci-data, ci-runtime]
-[nodesync ...] ▶ Bước 1: xác nhận remote store đã pull (litestream/rclone) — bắt đầu
-[nodesync ...] Resolve peer OK qua kênh "tailscale" → 100.x.y.z (method=status-json)
-[nodesync ...] ▶ Bước 2: DIFF dữ liệu với node01 (checksum) — bắt đầu
-[nodesync ...]   ci-data: local=abcd... remote=ef01... → KHÁC (cần sync)
-[nodesync ...] ▶ Bước 3: yêu cầu node01 BẬT treo request (503 Retry-After)
-[nodesync ...] node01 hold → ON (OK)
-[nodesync ...] ▶ Bước 4: rsync dữ liệu node01 → node02
-[nodesync ...] ▶ rsync path "ci-data" từ node01 — bắt đầu
-[nodesync ...] ✔ rsync path "ci-data" từ node01 — xong sau 164ms (Number of files: 8 | ...)
-[nodesync ...] node01 hold → OFF (OK)
-[nodesync ...] === BÁO CÁO SYNC ===
-[nodesync ...]   ✔ ci-data
-[nodesync ...] Kết quả: TẤT CẢ OK ✅. App sẵn sàng start.
-```
+## 4. Hold request thực tế
 
-Nếu Tailscale không sẵn → log fallback rõ ràng:
-```
-[nodesync ...] WARN Kênh "tailscale" không dùng được → fallback. Lý do: tailscale status --json thất bại: ... (tailnet chưa join / thiếu authkey / tailscale-cli không có)
-[nodesync ...] Resolve peer OK qua kênh "hybrid" → node01
-```
+`hold-requests.mjs on` tạo `ci-runtime/nodesync/hold.flag`. `hold-gate.mjs` đọc
+flag và trả:
 
----
+- `204` khi bình thường;
+- `503 Service Unavailable` + `Retry-After` khi đang sync.
 
-## 3. Kiểm chứng bằng `ls` / checksum / size / time (KẾT QUẢ EXECUTE THẬT)
+Các route Caddy import snippet `nodesync_hold_gate`; snippet chỉ hoạt động khi
+`SSH_ENABLE=1`. `sync.mjs` từ chối rsync nếu không bật được hold và luôn release
+hold trong `finally`.
 
-Dưới đây là **kết quả chạy thật** (rsync 3.2.7 + sha256sum GNU coreutils) mô phỏng
-node02 lệch (chỉ có `users/1.txt`) đồng bộ từ node01:
+Kiểm tra trực tiếp gate:
 
-### TRƯỚC sync
-```
-node01/ci-data:
--rw-r--r-- 9   app.db
--rw-r--r-- 8   config.json
-drwxr-xr-x     logs/      (app.log 692B)
-drwxr-xr-x     users/     (1.txt 9B, 2.txt 9B)
-
-node02/ci-data:
-drwxr-xr-x     users/     (1.txt 9B)     ← THIẾU app.db, config.json, logs/, users/2.txt
-```
-
-### rsync node01 → node02 (`-az --delete --checksum --stats`)
-```
-Number of files: 8 (reg: 5, dir: 3)
-Number of created files: 5 (reg: 4, dir: 1)
-Number of regular files transferred: 4
-Total transferred file size: 718 bytes
-```
-
-### SAU sync — checksum đối chiếu
-```
-node01/ci-data & node02/ci-data đều có:
-  <sha256> ./app.db
-  <sha256> ./config.json
-  <sha256> ./logs/app.log
-  <sha256> ./users/1.txt
-  <sha256> ./users/2.txt
-
-fingerprint tổng:
-  node01: 8f6561fac7843f630a449424c6c7f9ccedecd5fca432ee4ff16076bfa3797aee
-  node02: 8f6561fac7843f630a449424c6c7f9ccedecd5fca432ee4ff16076bfa3797aee   ← TRÙNG ✅
-```
-
-⟹ **Toàn vẹn**: sau sync, 2 node có **cùng danh sách file, cùng size, cùng
-checksum, cùng mtime** (rsync `-a` giữ thời gian). File thừa ở node02 (nếu có) bị
-`--delete` dọn sạch.
-
-### Lệnh tự kiểm chứng (chạy trong container / host)
 ```bash
-# So per-file checksum + size + time giữa 2 data dir đã sync:
-node nodesync/scripts/verify-integrity.mjs --local <dirA> <dirB>
-
-# Hoặc thủ công:
-diff <(cd A && find . -type f -exec sha256sum {} + | sort) \
-     <(cd B && find . -type f -exec sha256sum {} + | sort) && echo "TOÀN VẸN"
+SSH_WORKSPACE="$PWD/.work/hold-test" NODESYNC_HOLD_GATE_PORT=18088 \
+  node nodesync/scripts/hold-gate.mjs
+curl -i http://127.0.0.1:18088/hold                 # 204
+SSH_WORKSPACE="$PWD/.work/hold-test" node nodesync/scripts/hold-requests.mjs on
+curl -i http://127.0.0.1:18088/hold                 # 503 + Retry-After
 ```
 
----
+## 5. Build và runtime verification
 
-## 4. Bộ test tự động (execute thật, không cần Docker)
+```bash
+# Bắt lỗi package/image giống CI
+docker build -f nodesync/Dockerfile -t proxy-stack-nodesync:local .
 
-| Script | Nội dung | Kết quả |
-|--------|----------|---------|
-| `.work/verify/verify-nodesync.mjs` | 14 mẫu dữ liệu đa dạng, hold-flag, rsync, verify-integrity | **PASS ✅** |
-| `.work/verify/verify-nodesync-scenarios.mjs` | **13 kịch bản** (rỗng/thiếu/khác/thừa/sâu/unicode/lớn/nhiều file/ẩn/quyền/mix/no-op) | **PASS 13/13 ✅** |
+# Validate Compose
+docker compose config
+SSH_ENABLE=1 SSH_1_USER=sync COMPOSE_PROFILES=full docker compose config
+
+# Start nguồn/node01 rồi kiểm tra SSH server + gate
+docker compose up -d nodesync
+docker compose exec -T nodesync node scripts/hold-requests.mjs status
+curl -fsS http://127.0.0.1:8088/healthz  # nếu chạy từ cùng network/container
+
+# Trên node02: chạy luồng sync thật
+NODESYNC_SYNC_ON_START=1 node scripts/runners/start-stack.mjs
+```
+
+Dockerfile lấy `cloudflared` từ official image
+`cloudflare/cloudflared:2026.7.1`; không cài `cloudflared` bằng Alpine APK.
+
+## 6. Kiểm tra dữ liệu
+
+```bash
+node nodesync/scripts/verify-integrity.mjs --local <node01-dir> <node02-dir>
+```
+
+Verifier đối chiếu danh sách file, SHA-256, size, mode và mtime. Bộ test local:
 
 ```bash
 cd .work/verify
@@ -157,15 +121,20 @@ node verify-nodesync.mjs
 node verify-nodesync-scenarios.mjs
 ```
 
----
+Đã execute local:
 
-## 5. Ràng buộc kiểm chứng cục bộ (trung thực)
+- election/handoff mock RTDB: PASS;
+- 14 mẫu dữ liệu + rsync + integrity: PASS;
+- 15 scenario, gồm permission diff, no-op thật, symlink nội bộ và unsafe
+  symlink bị `--safe-links` bỏ qua đúng kỳ vọng: PASS 15/15;
+- hold-gate HTTP: `204 → 503 + Retry-After → 204`: PASS;
+- Compose core/full/CI render: PASS.
 
-- **rsync / checksum / size / time / hold-flag / phân quyền(dry-run) / resolve
-  fallback / parse multi-user**: chạy **THẬT 100%** trong sandbox (đã có kết quả).
-- **sshd runtime + tailnet thật + cloudflared**: sandbox **không có Docker daemon**
-  (không `/var/run/docker.sock`, không sudo/rootless) và **không có tailscale
-  authkey / cloudflare token** → phần này cần kiểm chứng trên **CI hoặc host có
-  Docker + creds**. Code đã log `reason` rõ ràng khi thiếu môi trường (xem §2).
-- Khi chạy trên host có Docker: `docker compose --profile full up -d`, rồi
-  `docker compose exec nodesync ssh sync@<peer> 'echo ok'` để xác nhận SSH thật.
+Chưa thể execute trong workspace hiện tại vì Docker daemon không có socket:
+
+- build container nodesync;
+- sshd/auth end-to-end giữa hai container;
+- Tailscale/Cloudflare với credentials thật.
+
+Các mục này phải chạy trong GitHub Actions hoặc host có Docker daemon và
+credentials. Không được diễn giải local rsync test là SSH/Tailscale E2E.

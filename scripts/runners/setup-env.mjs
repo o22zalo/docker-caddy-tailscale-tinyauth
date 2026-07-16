@@ -96,7 +96,19 @@ if (envHasKey(ENV, "TS_AUTHKEY") && !/full|tailscale/.test(envGet(ENV, "COMPOSE_
   log("Appended tailscale profile because TS_AUTHKEY is set");
 }
 
-// 4. Summary
+// 4. Materialise node id BEFORE Compose interpolation so orchestrator and
+// whoami receive the exact same identity.
+if (envGet(ENV, "CONSUL_ENABLE") === "1" && !envGet(ENV, "ORCH_NODE_ID")) {
+  const provider = process.env.GITHUB_RUN_ID ? "github" : (process.env.BUILD_BUILDID ? "azure" : "local");
+  const runId = process.env.GITHUB_RUN_ID || process.env.BUILD_BUILDID || process.env.HOSTNAME || "node";
+  const attempt = process.env.GITHUB_RUN_ATTEMPT || process.env.SYSTEM_JOBATTEMPT || "1";
+  const nodeId = `${provider}-${runId}-${attempt}`.replace(/[^a-zA-Z0-9_.-]/g, "-");
+  if (!DRY_RUN) envAppend(`ORCH_NODE_ID=${nodeId}`);
+  appendEnv("ORCH_NODE_ID", nodeId);
+  log(`Materialised ORCH_NODE_ID=${nodeId} for orchestrator + whoami`);
+}
+
+// 5. Summary
 if (GITHUB_STEP_SUMMARY) {
   appendFileSync(GITHUB_STEP_SUMMARY, `## Environment\n\n- Mode: ${ENV_FILE && envGet(ENV, "CF_TUNNEL_TOKEN") ? "named" : "quick"}\n- Profiles: ${envGet(ENV, "COMPOSE_PROFILES")}\n\n`);
 }

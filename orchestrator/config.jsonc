@@ -11,8 +11,8 @@
 // Thứ tự khuyến nghị: upload dữ liệu TRƯỚC, rồi mới stop cloudflared (nhường tunnel).
 {
   "handoff_pipeline": [
-    "upload-data",
-    "stop-cloudflared"
+    { "name": "upload-data", "critical": true },
+    { "name": "stop-cloudflared", "critical": true }
 
     // ── Ví dụ thêm nghiệp vụ phía sau (bỏ comment để dùng) ──────────────
     // ,{ "name": "notify", "shell": "curl -sS -X POST \"$ORCH_WEBHOOK_URL\" -d node=${successor}" }

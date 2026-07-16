@@ -118,6 +118,8 @@ function main() {
   let okCount = 0;
   for (const u of users) if (createUser(u)) okCount += 1;
   log(`Hoàn tất tạo user: ${okCount}/${users.length} OK`);
+  if (okCount !== users.length) process.exitCode = 1;
 }
 
-main();
+try { main(); }
+catch (e) { error(`setup-users lỗi: ${e.stack || e.message}`); process.exit(1); }

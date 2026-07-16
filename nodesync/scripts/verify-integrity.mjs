@@ -18,11 +18,9 @@
 //   node scripts/verify-integrity.mjs --dry-run
 //   node scripts/verify-integrity.mjs --silent
 
-import { spawnSync } from "node:child_process";
-import { readdirSync, statSync, existsSync, readFileSync } from "node:fs";
+import { readdirSync, lstatSync, existsSync, readFileSync, readlinkSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve, join, relative } from "node:path";
-import { loadConfig, workspaceDir } from "./lib/env.mjs";
 import { log, warn, error } from "./lib/log.mjs";
 
 const args = process.argv.slice(2);
@@ -39,13 +37,19 @@ function scanDir(root) {
     for (const name of readdirSync(dir)) {
       const full = join(dir, name);
       let st;
-      try { st = statSync(full); } catch { continue; }
+      try { st = lstatSync(full); } catch { continue; }
       if (st.isDirectory()) walk(full);
-      else if (st.isFile()) {
+      else if (st.isFile() || st.isSymbolicLink()) {
         const rel = relative(root, full);
+        const type = st.isSymbolicLink() ? "symlink" : "file";
         let sha = "";
-        try { sha = createHash("sha256").update(readFileSync(full)).digest("hex"); } catch { sha = "ERR"; }
-        out.set(rel, { size: st.size, mtimeMs: Math.round(st.mtimeMs), sha256: sha });
+        let linkTarget = "";
+        if (type === "file") {
+          try { sha = createHash("sha256").update(readFileSync(full)).digest("hex"); } catch { sha = "ERR"; }
+        } else {
+          try { linkTarget = readlinkSync(full); } catch { linkTarget = "ERR"; }
+        }
+        out.set(rel, { type, size: st.size, mtimeMs: Math.round(st.mtimeMs), mode: st.mode & 0o7777, sha256: sha, linkTarget });
       }
     }
   };
@@ -59,7 +63,9 @@ function compare(a, b) {
   for (const [rel, meta] of a) {
     if (!b.has(rel)) { onlyA.push({ rel, ...meta }); continue; }
     const mb = b.get(rel);
-    if (meta.sha256 !== mb.sha256 || meta.size !== mb.size) {
+    const mtimeDiff = Math.abs(meta.mtimeMs - mb.mtimeMs) > 1000;
+    if (meta.type !== mb.type || meta.sha256 !== mb.sha256 || meta.linkTarget !== mb.linkTarget
+      || meta.size !== mb.size || meta.mode !== mb.mode || mtimeDiff) {
       differ.push({ rel, a: meta, b: mb });
     } else same.push({ rel, ...meta });
   }
@@ -96,13 +102,13 @@ function reportLocal(dirA, dirB) {
   const durationMs = Date.now() - startedAt;
 
   log("--- Chi tiết ---");
-  log(`  GIỐNG (checksum+size khớp): ${same.length} file`);
+  log(`  GIỐNG (checksum+size+mode+mtime khớp): ${same.length} file`);
   same.slice(0, 20).forEach((f) => log(`    = ${f.rel} (${human(f.size)}, sha=${f.sha256.slice(0, 12)}, mtime=${new Date(f.mtimeMs).toISOString()})`));
   if (same.length > 20) log(`    ... (+${same.length - 20} file nữa)`);
 
   if (differ.length) {
     warn(`  KHÁC nội dung: ${differ.length} file`);
-    differ.slice(0, 20).forEach((f) => warn(`    ≠ ${f.rel}: A(sha=${f.a.sha256.slice(0, 12)},${human(f.a.size)}) vs B(sha=${f.b.sha256.slice(0, 12)},${human(f.b.size)})`));
+    differ.slice(0, 20).forEach((f) => warn(`    ≠ ${f.rel}: A(sha=${f.a.sha256.slice(0, 12)},${human(f.a.size)},mode=${f.a.mode.toString(8)},mtime=${f.a.mtimeMs}) vs B(sha=${f.b.sha256.slice(0, 12)},${human(f.b.size)},mode=${f.b.mode.toString(8)},mtime=${f.b.mtimeMs})`));
   }
   if (onlyA.length) {
     warn(`  CHỈ CÓ Ở A (node01), thiếu ở B (node02): ${onlyA.length} file`);
@@ -115,7 +121,7 @@ function reportLocal(dirA, dirB) {
 
   const integrityOk = differ.length === 0 && onlyA.length === 0 && onlyB.length === 0;
   log("=== KẾT LUẬN TOÀN VẸN ===");
-  log(`  ${integrityOk ? "✅ TOÀN VẸN — 2 node KHỚP HOÀN TOÀN (checksum+size)" : "❌ CHƯA TOÀN VẸN — còn khác biệt (xem trên)"}`);
+  log(`  ${integrityOk ? "✅ TOÀN VẸN — 2 node KHỚP (checksum+size+mode+mtime)" : "❌ CHƯA TOÀN VẸN — còn khác biệt (xem trên)"}`);
   log(`  Thời gian kiểm tra: ${durationMs}ms`);
 
   return {
@@ -134,14 +140,12 @@ function main() {
     if (!dirA || !dirB) { error("Cần: --local <DIR_A> <DIR_B>"); process.exit(1); }
     result = reportLocal(dirA, dirB);
   } else {
-    // Chế độ --peer: so workspace cục bộ với node01 qua ssh (fingerprint tổng).
-    // (Chi tiết per-file qua ssh tốn kém → dùng fingerprint tổng như sync.mjs.)
-    warn("Chế độ --peer: cần ssh tới node01 (dùng resolve-peer). Để KIỂM CHỨNG per-file toàn vẹn hãy dùng --local với 2 data dir đã sync.");
-    result = { peerMode: true, note: "dùng sync.mjs để diff qua ssh; verify per-file dùng --local" };
+    error("Chế độ peer chưa được hiện thực. Dùng --local <DIR_A> <DIR_B>; không trả PASS giả.");
+    process.exit(2);
   }
 
   if (AS_JSON) console.log(JSON.stringify(result, null, 2));
-  const ok = result.integrityOk === undefined ? true : result.integrityOk;
+  const ok = result.integrityOk === true || result.dryRun === true;
   process.exit(ok ? 0 : 3);
 }
 

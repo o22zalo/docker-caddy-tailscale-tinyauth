@@ -6,7 +6,7 @@
 //
 // Chạy được KHÔNG cần Docker/ssh (rsync + sha256 local thật).
 
-import { mkdirSync, writeFileSync, rmSync, existsSync, chmodSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, existsSync, chmodSync, utimesSync, symlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
@@ -24,12 +24,13 @@ function w(base, rel, content) {
   return abs;
 }
 function fingerprint(dir) {
-  const r = sh("bash", ["-lc", `cd ${JSON.stringify(dir)} && find . -type f -exec sha256sum {} + 2>/dev/null | sort | sha256sum | cut -d' ' -f1`]);
+  const cmd = `cd ${JSON.stringify(dir)} && { find . -printf 'META %y %p %m %s\\n'; find . -type f -exec sha256sum {} +; find . -type l -printf 'LINK %p -> %l\\n'; } 2>/dev/null | sort | sha256sum | cut -d' ' -f1`;
+  const r = sh("bash", ["-lc", cmd]);
   return r.ok ? r.out : "ERR";
 }
 function rsyncSync(src, dst) {
   const t = Date.now();
-  const r = sh("rsync", ["-az", "--delete", "--checksum", `${src}/`, `${dst}/`]);
+  const r = sh("rsync", ["-az", "--delete", "--checksum", "--safe-links", `${src}/`, `${dst}/`]);
   return { ok: r.ok, ms: Date.now() - t, err: r.err };
 }
 function integrity(a, b) {
@@ -55,7 +56,9 @@ const scenarios = [
   { name: "10 file ẩn", n1: (b) => { w(b, ".hidden", "h"); w(b, ".config/x", "c"); }, n2: () => {} },
   { name: "11 đổi quyền file (rsync -a giữ perm)", n1: (b) => { const p = w(b, "exec.sh", "#!/bin/sh\necho hi"); chmodSync(p, 0o755); }, n2: (b) => { const p = w(b, "exec.sh", "#!/bin/sh\necho hi"); chmodSync(p, 0o644); } },
   { name: "12 mix: thiếu+khác+thừa cùng lúc", n1: (b) => { w(b, "keep.txt", "K"); w(b, "change.txt", "NEW"); w(b, "add.txt", "ADD"); }, n2: (b) => { w(b, "keep.txt", "K"); w(b, "change.txt", "OLD"); w(b, "remove.txt", "R"); } },
-  { name: "13 giống hệt (no-op)", n1: (b) => w(b, "same.txt", "IDENTICAL"), n2: (b) => w(b, "same.txt", "IDENTICAL") },
+  { name: "13 giống hệt (no-op)", expectDifference: false, n1: (b) => { const p = w(b, "same.txt", "IDENTICAL"); utimesSync(p, 1700000000, 1700000000); }, n2: (b) => { const p = w(b, "same.txt", "IDENTICAL"); utimesSync(p, 1700000000, 1700000000); } },
+  { name: "14 symlink nội bộ an toàn", n1: (b) => { w(b, "target.txt", "OK"); symlinkSync("target.txt", resolve(b, "link.txt")); }, n2: () => {} },
+  { name: "15 symlink ra ngoài bị safe-links bỏ qua", expectSafeSkip: true, n1: (b) => symlinkSync("/etc/passwd", resolve(b, "unsafe-link")), n2: () => {} },
 ];
 
 function run() {
@@ -74,7 +77,11 @@ function run() {
     const sync = rsyncSync(n1, n2);
     const fpAfter = { a: fingerprint(n1), b: fingerprint(n2) };
     const integ = integrity(n1, n2);
-    const ok = sync.ok && fpAfter.a === fpAfter.b && integ && integ.integrityOk === true;
+    const expectedDifference = s.expectDifference ?? true;
+    const safeSkipOk = s.expectSafeSkip
+      ? sync.ok && !existsSync(resolve(n2, "unsafe-link")) && integ?.counts?.onlyA === 1
+      : sync.ok && fpAfter.a === fpAfter.b && integ?.integrityOk === true;
+    const ok = differedBefore === expectedDifference && safeSkipOk;
 
     rows.push({
       scenario: s.name,

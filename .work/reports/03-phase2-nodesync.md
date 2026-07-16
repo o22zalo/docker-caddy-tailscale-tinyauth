@@ -1,5 +1,11 @@
 # Phase 03 — Implement Phần 2 (nodesync) + Kiểm chứng
 
+> **Audit bổ sung 2026-07-17:** Kết luận ban đầu được thay thế bởi vòng review
+> độc lập hiện tại. Đã sửa build `cloudflared` APK, nối pre-start sync thật,
+> hiện thực hold-gate HTTP 503, fallback theo SSH probe, Tailscale SOCKS5,
+> cache CI, sync-path an toàn và verifier 15/15. Xem
+> `docs/nodesync-verification.md` là nguồn hướng dẫn hiện hành.
+
 > Vai trò: Coder → Test/Verify. Ghi lại thay đổi + kết quả execute thật.
 
 ## Cấu trúc dịch vụ mới `nodesync/`

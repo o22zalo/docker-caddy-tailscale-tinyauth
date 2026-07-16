@@ -1,5 +1,10 @@
 # Phase 04 — Tổng hợp 3 phương án kênh & quyết định phương án cuối
 
+> **Audit bổ sung 2026-07-17:** Thiết kế hợp nhất vẫn giữ, nhưng fallback hiện
+> dựa trên SSH probe thật (không chỉ resolve). Tailscale userspace đi qua SOCKS5
+> sidecar; hold 503 đã có HTTP gate thật. Nguồn hiện hành:
+> `docs/nodesync-verification.md`.
+
 > Vai trò: Reviewer/Architect. So sánh 3 phương án kênh truyền SSH, đánh giá
 > mạnh/yếu/độ phức tạp/độ đúng-thực-tế, rồi chốt **phương án hợp nhất** đã hiện
 > thực (config-driven + fallback). Đây là phần "đối chiếu qua lại, report theo

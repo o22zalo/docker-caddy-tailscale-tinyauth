@@ -251,11 +251,18 @@ async function main() {
           config,
         });
       } catch (e) {
-        error(`handoff pipeline error: ${e.message}`);
-        await pushHandoffLog("pipeline_error", `Pipeline handoff lỗi: ${e.message}`, { from: identity.nodeId, to: successor.id, term });
+        error(`handoff pipeline critical error: ${e.message}; HỦY handoff, giữ leadership`);
+        await pushHandoffLog("pipeline_error", `Pipeline handoff lỗi critical: ${e.message}; hủy chuyển giao và giữ leader`, {
+          from: identity.nodeId, to: successor.id, term,
+        });
+        await pushEvent("handoff.aborted", { successor: successor.id, term, error: e.message });
+        await reg.setState("serving");
+        handoffDone = false;
+        await sleep(renewInterval);
+        continue;
       }
 
-      // Nhường ghế: node kế nhiệm sẽ tryAcquire() và thắng.
+      // Chỉ nhường ghế khi pipeline không có critical failure.
       log(`Releasing leadership for successor=${successor.id}. Current leader before release: ${describeLeader(await getLeader())}`);
       await logElectionSnapshot("handoff-before-release", { self: identity.nodeId, successor: successor.id, term });
       await pushHandoffLog("release", `Nhả ghế leader để ${successor.id} tiếp quản (term hiện tại=${term})`, {

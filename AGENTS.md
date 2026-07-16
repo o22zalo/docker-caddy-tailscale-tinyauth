@@ -45,6 +45,7 @@ README.md                # Human-facing docs
 | `cloudflare/` | `cloudflare.yml` | `cloudflare/.env.example` | cloudflared public edge       |
 | `tailscale/`  | `tailscale.yml`  | `tailscale/.env.example`  | Profiles: `tailscale`, `full` |
 | `orchestrator/`| `orchestrator.yml`| `orchestrator/.env.example`| RTDB leader/handoff sidecar   |
+| `nodesync/`   | `nodesync.yml`   | `nodesync/.env.example`   | SSH sync + hold-gate sidecar  |
 
 ### Naming rules
 
@@ -212,8 +213,9 @@ joins `proxy`.
 | `filebrowser`| Filebrowser only                                     |
 | `webssh`     | WebSSH/ttyd only                                     |
 | `orchestrator`| Orchestrator sidecar only                           |
+| `nodesync`   | SSH sync + hold-gate sidecar only                    |
 | `core`       | caddy + tinyauth + whoami + cloudflare + orchestrator (public path) |
-| `full`       | core + tailscale + dozzle + filebrowser + webssh     |
+| `full`       | core + tailscale + dozzle + filebrowser + webssh + nodesync |
 
 | Service       | Profiles on the service      |
 | ------------- | ---------------------------- |
@@ -228,6 +230,7 @@ joins `proxy`.
 | `filebrowser` | `filebrowser`, `full`        |
 | `webssh`      | `webssh`, `full`             |
 | `orchestrator`| `orchestrator`, `core`, `full` |
+| `nodesync`    | `nodesync`, `full`           |
 
 ```bash
 # .env (recommended default)
@@ -261,6 +264,7 @@ docker compose \
   -f cloudflare/cloudflare.yml \
   -f tailscale/tailscale.yml \
   -f orchestrator/orchestrator.yml \
+  -f nodesync/nodesync.yml \
   up -d
 ```
 
