@@ -17,7 +17,15 @@ const ENV = resolve(ROOT, ".env");
 const GITHUB_ENV = process.env.GITHUB_ENV;
 const username = "ci-bot";
 const password = randomBytes(18).toString("base64url");
-const escapeHash = (value) => value.replace(/\$+/g, "$").split("$").join("$$$$$$$$");
+// Each real "$" in the bcrypt hash must survive TWO rounds of docker-compose
+// variable interpolation (once when Compose parses .env itself, once when the
+// compose file substitutes ${TINYAUTH_AUTH_USERS} into the container env).
+// Each round collapses a "$$" pair into a single "$". To end up with exactly
+// one "$" after two rounds you need 4 -> 2 -> 1, i.e. store 4 literal "$"
+// characters per original "$". NOTE: this is a plain string join, not a regex
+// replace, so there is no "$$" => "$" shorthand here — the string you pass is
+// exactly what ends up in the file.
+const escapeHash = (value) => value.replace(/\$+/g, "$").split("$").join("$$$$");
 const hash = escapeHash(bcryptjs.hashSync(password, 10));
 const rawEnv = readFileSync(ENV, "utf8");
 const current = rawEnv.match(/^TINYAUTH_AUTH_USERS\s*=(.*)$/m)?.[1] || "";
