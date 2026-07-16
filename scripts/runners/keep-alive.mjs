@@ -68,18 +68,70 @@ function login(timeout) {
   const url = authUrl();
   const username = env.TINYAUTH_CI_USER;
   const password = env.TINYAUTH_CI_PASSWORD;
-  if (!url || !username || !password) return false;
+  log(`[auth] url=${url || "(missing)"} user=${username || "(missing)"} password=${password ? "<hidden>" : "(missing)"}`);
+  if (!url || !username || !password) {
+    log("[auth] skipped: missing TINYAUTH_APPURL / TINYAUTH_CI_USER / TINYAUTH_CI_PASSWORD");
+    return { ok: false, reason: "config" };
+  }
   const bodyFile = resolve(tmpdir(), `tinyauth-login-${process.pid}.json`);
   const headersFile = resolve(tmpdir(), `tinyauth-login-${process.pid}.headers`);
   const responseFile = resolve(tmpdir(), `tinyauth-login-${process.pid}.body`);
   writeFileSync(bodyFile, JSON.stringify({ username, password }));
   const cmd = `curl -k -sS -D "${headersFile}" -c "${COOKIE_FILE}" -o "${responseFile}" -w "%{http_code}" --max-time ${timeout} -X POST -H "Content-Type: application/json" --data-binary "@${bodyFile}" "${url.replace(/\/$/, "")}/api/login"`;
-  if (DRY_RUN) { log(`[DRY RUN] ${cmd.replace(password, "<password>")}`); return true; }
-  const code = sh(cmd) || "ERR";
-  log(`[auth] ${url}/api/login ${code}`);
+  if (DRY_RUN) { log(`[DRY RUN] ${cmd.replace(password, "<password>")}`); return { ok: true, reason: "dry-run" }; }
+
+  // curl's own exit code (transport-level: DNS/connect/timeout) is separate from
+  // the HTTP status it received (application-level: wrong creds, server error...).
+  let code = "ERR";
+  let curlExit = 0;
+  try {
+    code = execSync(cmd, { cwd: ROOT, stdio: ["pipe", "pipe", "pipe"] }).toString().trim();
+  } catch (e) {
+    curlExit = e.status ?? 1;
+    code = (e.stdout || "").toString().trim() || "ERR";
+  }
+
+  if (curlExit !== 0) {
+    // curl never got a response at all: host unreachable, connection refused, timed out...
+    // this is "mạng chưa thông", not an auth problem — no HTTP status exists to blame.
+    log(`[auth] network error reaching ${url} (curl exit code ${curlExit})`);
+    return { ok: false, reason: "network", curlExit };
+  }
+
+  log(`[auth] ${url}/api/login -> HTTP ${code}`);
   showHttpDebug("auth", headersFile, responseFile);
   log(`[auth] cookies=${cookieNames().join(",") || "(none)"}`);
-  return code === "200" || code === "204";
+
+  if (code === "401" || code === "403" || code === "422") {
+    return { ok: false, reason: "credentials", httpCode: code };
+  }
+  if (!/^[23]\d\d$/.test(code) && !cookieHeader()) {
+    return { ok: false, reason: "unexpected", httpCode: code };
+  }
+  if (!existsSync(COOKIE_FILE) || !cookieHeader()) {
+    // Login endpoint said success but never actually gave us a session cookie.
+    log("[auth] login returned success but no cookie was written — treating as failed");
+    return { ok: false, reason: "no-cookie" };
+  }
+  return { ok: true, reason: "ok" };
+}
+
+function verifyCookie(urls, timeout) {
+  const probe = urls[0];
+  if (!probe) return true;
+  const header = cookieHeader();
+  const cookie = header ? `-H "Cookie: ${header}"` : "";
+  const headersFile = resolve(tmpdir(), `tinyauth-verify-${process.pid}.headers`);
+  const responseFile = resolve(tmpdir(), `tinyauth-verify-${process.pid}.body`);
+  const cmd = `curl -k -sS ${cookie} -D "${headersFile}" -o "${responseFile}" -w "%{http_code}" --max-time ${timeout} "${probe.url}"`;
+  const code = sh(cmd) || "ERR";
+  log(`[auth] cookie check via ${probe.url} -> HTTP ${code}`);
+  showHttpDebug("auth-verify", headersFile, responseFile);
+  if (code === "401" || code === "403") {
+    log("[auth] login succeeded but cookie doesn't authorize requests — check that TINYAUTH_APPURL shares a parent domain with the app URLs");
+    return false;
+  }
+  return true;
 }
 
 function cookieRows() {
@@ -159,7 +211,12 @@ if (!detectDocker().available) {
 }
 
 log(`Keeping stack alive for ${keepSeconds}s, heartbeat every ${intervalSeconds}s. URL: ${publicUrl}`);
-const loggedIn = login(config.curl_timeout_seconds);
+const loginResult = login(config.curl_timeout_seconds);
+if (!loginResult.ok) log(`[auth] not authenticated (reason: ${loginResult.reason}) — service checks will run without a cookie and may show 401s`);
+const initialUrls = serviceUrls(config);
+const hasCookie = loginResult.ok && Boolean(cookieHeader());
+if (hasCookie) verifyCookie(initialUrls, config.curl_timeout_seconds);
+const loggedIn = hasCookie;
 
 let elapsed = 0;
 let since = new Date().toISOString();
