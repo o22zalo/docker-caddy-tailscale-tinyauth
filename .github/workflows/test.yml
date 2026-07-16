@@ -71,6 +71,16 @@ jobs:
           cache-from: type=gha,scope=rclone
           cache-to: type=gha,mode=max,scope=rclone
 
+      - name: Build orchestrator image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./orchestrator/Dockerfile
+          tags: proxy-stack-orchestrator:local
+          load: true
+          cache-from: type=gha,scope=orchestrator
+          cache-to: type=gha,mode=max,scope=orchestrator
+
       # ── Environment ───────────────────────────────────────────────
       - name: Setup environment
         env:
