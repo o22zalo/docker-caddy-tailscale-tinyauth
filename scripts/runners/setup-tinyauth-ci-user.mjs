@@ -17,13 +17,14 @@ const ENV = resolve(ROOT, ".env");
 const GITHUB_ENV = process.env.GITHUB_ENV;
 const username = "ci-bot";
 const password = randomBytes(18).toString("base64url");
-const hash = bcryptjs.hashSync(password, 10).replace(/\$/g, "$$$$");
+const hash = bcryptjs.hashSync(password, 10).split("$").join("$$");
 const rawEnv = readFileSync(ENV, "utf8");
 const current = rawEnv.match(/^TINYAUTH_AUTH_USERS\s*=(.*)$/m)?.[1] || "";
-const next = current && !current.includes(`${username}:`) ? `${current},${username}:${hash}` : current || `${username}:${hash}`;
+const users = current.split(",").map((user) => user.trim()).filter((user) => user && !user.startsWith(`${username}:`));
+const next = [...users, `${username}:${hash}`].join(",");
 
 if (!DRY_RUN) {
-  let src = rawEnv;
+  let src = rawEnv.replace(/^TINYAUTH_CI_USER=.*\n?/gm, "").replace(/^TINYAUTH_CI_PASSWORD=.*\n?/gm, "");
   if (/^TINYAUTH_AUTH_USERS\s*=.*$/m.test(src)) {
     src = src.replace(/^TINYAUTH_AUTH_USERS\s*=.*$/m, `TINYAUTH_AUTH_USERS=${next}`);
   } else {
