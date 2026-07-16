@@ -6,7 +6,7 @@
 // Flags:
 //   --dry-run   Show commands without running
 //   --silent    Suppress output
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,6 +35,20 @@ log(`Docker: ${docker.via} (${docker.cmd})`);
 function run(cmd) {
   if (DRY_RUN) { log(`[DRY RUN] ${cmd}`); return; }
   execSync(cmd, { stdio: SILENT ? "ignore" : "inherit", cwd: ROOT });
+}
+function runPrefixed(name, cmd) {
+  if (DRY_RUN) { log(`[DRY RUN] ${cmd}`); return Promise.resolve(); }
+  return new Promise((resolvePromise, reject) => {
+    const proc = spawn(cmd, { cwd: ROOT, shell: true, stdio: ["ignore", "pipe", "pipe"] });
+    const write = (stream, data) => {
+      if (SILENT) return;
+      for (const line of data.toString().split(/\r?\n/).filter(Boolean)) stream.write(`[${name}] ${line}\n`);
+    };
+    proc.stdout.on("data", (data) => write(process.stdout, data));
+    proc.stderr.on("data", (data) => write(process.stderr, data));
+    proc.on("error", reject);
+    proc.on("close", (code) => code === 0 ? resolvePromise() : reject(new Error(`${name} failed with exit code ${code}`)));
+  });
 }
 function sh(cmd) {
   if (DRY_RUN) return "";
@@ -94,8 +108,10 @@ process.env.DOCKER_VOLUME_RUNTIME_ABS = resolveVolumeRoot(envGet(envFile, "DOCKE
 process.env.DOCKER_VOLUME_DATA_ABS = resolveVolumeRoot(envGet(envFile, "DOCKER_VOLUME_DATA"), "ci-data");
 
 run(`node litestream/scripts/generate-config.mjs${SILENT ? " --silent" : ""}`);
-run(`node litestream/scripts/restore.mjs${SILENT ? " --silent" : ""}`);
-run(`node rclone/scripts/pull.mjs${SILENT ? " --silent" : ""}`);
+await Promise.all([
+  runPrefixed("litestream", `node litestream/scripts/restore.mjs${SILENT ? " --silent" : ""}`),
+  runPrefixed("rclone", `node rclone/scripts/pull.mjs${SILENT ? " --silent" : ""}`),
+]);
 
 // Start stack
 if (MODE === "named") {

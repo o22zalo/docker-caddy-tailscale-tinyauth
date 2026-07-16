@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { availableParallelism, cpus } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "jsonc-parser";
@@ -8,19 +9,24 @@ export const __dirname = dirname(fileURLToPath(import.meta.url));
 export const ROOT = resolve(__dirname, "../..");
 const CONFIG_FILE = resolve(__dirname, "rclone.jsonc");
 
+function defaultConcurrency() {
+  return Math.max(2, availableParallelism?.() || cpus().length || 2);
+}
+
 export function loadConfig() {
   const defaults = {
     image: "proxy-stack-rclone:local",
     pull_image: "rclone/rclone:1.68",
     runtime_root: "ci-runtime",
     data_root: "./ci-data/rclone",
-    concurrency: 8,
+    concurrency: defaultConcurrency(),
     transfers: 8,
     checkers: 16,
     interval_seconds: 300,
   };
   if (!existsSync(CONFIG_FILE)) return defaults;
-  return { ...defaults, ...parse(readFileSync(CONFIG_FILE, "utf8")) };
+  const loaded = { ...defaults, ...parse(readFileSync(CONFIG_FILE, "utf8")) };
+  return { ...loaded, concurrency: Math.max(1, Number(loaded.concurrency) || defaults.concurrency) };
 }
 
 export function loadEnv(args) {

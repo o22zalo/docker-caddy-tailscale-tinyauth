@@ -186,6 +186,7 @@ Startup helpers auto-enable the `litestream` profile when a `LITESTREAM_*`
 block exists, generate `ci-runtime/litestream/litestream.yml`, restore any
 missing local DB from S3 if present, then start containers. If S3 has no backup
 yet, the app creates the DB and Litestream replicates it afterward.
+Litestream restore and Rclone pull run in parallel after config generation.
 
 ### Rclone data sync
 

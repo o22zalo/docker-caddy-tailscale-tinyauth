@@ -10,6 +10,9 @@ Litestream restore SQLite DB trước khi app start, rồi replicate thay đổi
 4. Nếu S3 chưa có backup, restore bỏ qua để app tự tạo DB.
 5. Khi container chạy, service `litestream` replicate DB lên S3.
 
+`restore.mjs` restore các DB song song. Default concurrency = số CPU, tối thiểu
+2; có thể override bằng `--concurrency <n>`.
+
 Helper đặt container name từ block đầu tiên:
 
 ```text

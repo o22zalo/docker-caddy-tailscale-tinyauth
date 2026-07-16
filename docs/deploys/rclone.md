@@ -183,14 +183,15 @@ Jobs chạy song song. Default trong `rclone/scripts/rclone.jsonc`:
 
 ```jsonc
 {
-  "concurrency": 8,
+  "concurrency": null,
   "transfers": 8,
   "checkers": 16,
   "interval_seconds": 300
 }
 ```
 
-Tăng khi remote/network chịu được; giảm khi bị rate limit.
+`concurrency: null` nghĩa là dùng số CPU, tối thiểu 2. Đặt số cụ thể khi muốn
+override; tăng khi remote/network chịu được, giảm khi bị rate limit.
 
 ## Chạy theo tags
 

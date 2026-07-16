@@ -7,8 +7,8 @@
   "runtime_root": "ci-runtime",
   "data_root": "./ci-data/rclone",
 
-  // Parallel jobs. Keep high by default; rclone has its own transfer/checker limits.
-  "concurrency": 8,
+  // Parallel jobs. Omit/null = CPU count, minimum 2. Set a number to override.
+  "concurrency": null,
   "transfers": 8,
   "checkers": 16,
   "interval_seconds": 300

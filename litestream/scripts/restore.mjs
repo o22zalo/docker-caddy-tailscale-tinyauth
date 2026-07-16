@@ -3,6 +3,7 @@
 // Runs all LITESTREAM_<index>_* restores concurrently (independent DBs/buckets).
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { availableParallelism, cpus } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "jsonc-parser";
@@ -14,7 +15,8 @@ const DRY_RUN = args.includes("--dry-run");
 const SILENT = args.includes("--silent");
 const envArg = args.indexOf("--env");
 const concurrencyArg = args.indexOf("--concurrency");
-const CONCURRENCY = concurrencyArg >= 0 ? Math.max(1, parseInt(args[concurrencyArg + 1], 10) || 1) : Infinity;
+const CPU_CONCURRENCY = Math.max(2, availableParallelism?.() || cpus().length || 2);
+const CONCURRENCY = concurrencyArg >= 0 ? Math.max(1, parseInt(args[concurrencyArg + 1], 10) || 1) : CPU_CONCURRENCY;
 const log = (...a) => { if (!SILENT) console.log(...a); };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
