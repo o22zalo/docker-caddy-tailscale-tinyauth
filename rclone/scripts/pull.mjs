@@ -31,6 +31,10 @@ function redact(value) {
   return value.replace(/([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASS|AUTH|KEY|COOKIE|CREDENTIAL|CLIENT)[A-Z0-9_]*=)[^\s]+/gi, "$1[REDACTED]");
 }
 
+function isMissingRemote(value) {
+  return /directory not found|object not found|not found|no such file|no such object|path not found|couldn't find|didn't find/i.test(value);
+}
+
 async function main() {
   const config = loadConfig();
   const { env } = loadEnv(args);
@@ -71,8 +75,13 @@ async function main() {
       if (stdout.trim()) log(`[${item.index}:${item.name}] ${stdout.trim()}`);
       return { name: item.name, ok: true };
     }
+    const output = `${stdout}\n${stderr}`;
+    if (isMissingRemote(output)) {
+      log(`Rclone pull: ${item.index}:${item.name} remote does not exist yet; local path will be pushed on next sync.`);
+      return { name: item.name, ok: true };
+    }
     console.error(`Rclone pull failed for ${item.index}:${item.name}.`);
-    console.error(redact(`${stdout}\n${stderr}`.trim()));
+    console.error(redact(output.trim()));
     return { name: item.name, ok: false, code };
   });
 

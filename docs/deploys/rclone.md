@@ -15,6 +15,10 @@ Không cần thêm `rclone` vào `COMPOSE_PROFILES` khi dùng `node scripts/up.m
 hoặc CI. Nếu chạy `docker compose up` trực tiếp, Compose không tự suy luận được
 profile fallback này.
 
+Nếu remote folder/file chưa tồn tại ở lần chạy đầu, `pull.mjs` coi đó là trạng
+thái hợp lệ và cho stack đi tiếp. Container `rclone` sẽ push local lên remote ở
+lần sync kế tiếp.
+
 ## Storage layout
 
 Rclone mount cố định các root workspace:
