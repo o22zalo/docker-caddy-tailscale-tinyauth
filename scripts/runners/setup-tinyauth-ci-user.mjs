@@ -17,11 +17,30 @@ const ENV = resolve(ROOT, ".env");
 const GITHUB_ENV = process.env.GITHUB_ENV;
 const username = "ci-bot";
 const password = randomBytes(18).toString("base64url");
-const hash = bcryptjs.hashSync(password, 10).split("$").join("$$");
+const escapeHash = (value) => value.replace(/\$+/g, "$").split("$").join("$$$$$$$$");
+const hash = escapeHash(bcryptjs.hashSync(password, 10));
 const rawEnv = readFileSync(ENV, "utf8");
 const current = rawEnv.match(/^TINYAUTH_AUTH_USERS\s*=(.*)$/m)?.[1] || "";
-const users = current.split(",").map((user) => user.trim()).filter((user) => user && !user.startsWith(`${username}:`));
+const users = current.split(",")
+  .map((user) => user.trim())
+  .filter((user) => user && !user.startsWith(`${username}:`))
+  .map((entry) => {
+    const i = entry.indexOf(":");
+    if (i === -1) return entry;
+    return `${entry.slice(0, i)}:${escapeHash(entry.slice(i + 1))}`;
+  });
 const next = [...users, `${username}:${hash}`].join(",");
+
+function authSummary(label, value) {
+  const names = value.split(",").map((entry) => entry.split(":")[0]).filter(Boolean).join(",");
+  const sample = value.replace(/:[^,]+/g, ":<hash>").slice(0, 120);
+  const dollarRuns = [...value.matchAll(/\$+/g)].map((m) => m[0].length);
+  log(`[env] ${label} length=${value.length} users=${names || "(none)"}`);
+  log(`[env] ${label} sample=${sample}`);
+  log(`[env] ${label} dollar_runs=${dollarRuns.join(",") || "0"}`);
+}
+
+authSummary("TINYAUTH_AUTH_USERS before", current);
 
 if (!DRY_RUN) {
   let src = rawEnv.replace(/^TINYAUTH_CI_USER=.*\n?/gm, "").replace(/^TINYAUTH_CI_PASSWORD=.*\n?/gm, "");
@@ -35,6 +54,7 @@ if (!DRY_RUN) {
   if (GITHUB_ENV) appendFileSync(GITHUB_ENV, `TINYAUTH_CI_USER=${username}\nTINYAUTH_CI_PASSWORD=${password}\n`);
 }
 
+authSummary("TINYAUTH_AUTH_USERS after", next);
 log(`[env] TINYAUTH_CI_USER=${username}`);
 log("[env] TINYAUTH_CI_PASSWORD=<hidden>");
 log("[env] Added Tinyauth ci-bot user");
