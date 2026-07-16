@@ -74,6 +74,14 @@ function mask(value) {
     .replace(/(token|secret|session|auth|password)=([^;&\s]+)/gi, "$1=<hidden>");
 }
 
+function formatBody(body) {
+  const trimmed = String(body || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("<")) return trimmed.split(/\r?\n/)[0];
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return trimmed;
+  return trimmed.slice(0, 500);
+}
+
 function withTimeout(timeoutSeconds) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
@@ -121,7 +129,7 @@ async function login(timeoutSeconds) {
   const body = await res.text().catch(() => "");
 
   log(`[auth] ${endpoint} -> HTTP ${res.status}`);
-  log(`[auth] response_body_sample=${mask(body.slice(0, 500)) || "(empty)"}`);
+  log(`[auth] response_body_sample=${mask(formatBody(body)) || "(empty)"}`);
   log(`[auth] set-cookie names=${cookieNamesFromSetCookie(setCookies)}`);
 
   if (res.status === 401 || res.status === 403 || res.status === 422) {
@@ -178,7 +186,7 @@ async function checkUrl(item, timeoutSeconds, useCookie) {
   }
   const body = await res.text().catch(() => "");
   log(`[url] ${item.service} ${item.url} ${res.status} cookie=${useCookie ? (sessionCookie ? "sent" : "(none)") : "(disabled)"}`);
-  log(`[${item.service}] response_body_sample=${mask(body.slice(0, 500)) || "(empty)"}`);
+  log(`[${item.service}] response_body_sample=${mask(formatBody(body)) || "(empty)"}`);
   if (res.status !== 200) process.exitCode = 1;
 }
 
