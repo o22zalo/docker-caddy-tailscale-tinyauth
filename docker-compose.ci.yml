@@ -40,7 +40,6 @@ services:
     labels: !override
       caddy: ":80"
       caddy.reverse_proxy: "{{upstreams 80}}"
-      caddy.import: nodesync_hold_gate *
 
   tinyauth:
     labels: !override

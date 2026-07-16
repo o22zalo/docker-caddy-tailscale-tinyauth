@@ -76,10 +76,7 @@ log(`  subdomain  : ${subdomain}.<DOMAIN>`);
 log(`  auth       : ${auth ? "on (tinyauth_forwarder)" : "off (public)"}`);
 
 // ── Placeholder substitution ────────────────────────────────────────────────
-const AUTH_IMPORT = [
-  "      caddy.import: nodesync_hold_gate *",
-  ...(auth ? ["      caddy.import_1: tinyauth_forwarder *"] : []),
-].join("\n");
+const AUTH_IMPORT = auth ? "      caddy.import: tinyauth_forwarder *" : "";
 function render(text) {
   return text
     .split("__APP_NAME__").join(name)

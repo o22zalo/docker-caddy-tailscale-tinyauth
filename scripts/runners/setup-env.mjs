@@ -98,14 +98,21 @@ if (envHasKey(ENV, "TS_AUTHKEY") && !/full|tailscale/.test(envGet(ENV, "COMPOSE_
 
 // 4. Materialise node id BEFORE Compose interpolation so orchestrator and
 // whoami receive the exact same identity.
-if (envGet(ENV, "CONSUL_ENABLE") === "1" && !envGet(ENV, "ORCH_NODE_ID")) {
+if (envGet(ENV, "CONSUL_ENABLE") === "1" || envGet(ENV, "SSH_ENABLE") === "1") {
   const provider = process.env.GITHUB_RUN_ID ? "github" : (process.env.BUILD_BUILDID ? "azure" : "local");
   const runId = process.env.GITHUB_RUN_ID || process.env.BUILD_BUILDID || process.env.HOSTNAME || "node";
   const attempt = process.env.GITHUB_RUN_ATTEMPT || process.env.SYSTEM_JOBATTEMPT || "1";
-  const nodeId = `${provider}-${runId}-${attempt}`.replace(/[^a-zA-Z0-9_.-]/g, "-");
-  if (!DRY_RUN) envAppend(`ORCH_NODE_ID=${nodeId}`);
+  const generated = `${provider}-${runId}-${attempt}`.replace(/[^a-zA-Z0-9_.-]/g, "-");
+  const nodeId = envGet(ENV, "ORCH_NODE_ID") || generated;
+  if (!DRY_RUN) {
+    if (!envGet(ENV, "ORCH_NODE_ID")) envAppend(`ORCH_NODE_ID=${nodeId}`);
+    const content = readFileSync(ENV, "utf8");
+    if (/^WHOAMI_NAME=/m.test(content)) writeFileSync(ENV, content.replace(/^WHOAMI_NAME=.*$/m, `WHOAMI_NAME=${nodeId}`));
+    else envAppend(`WHOAMI_NAME=${nodeId}`);
+  }
   appendEnv("ORCH_NODE_ID", nodeId);
-  log(`Materialised ORCH_NODE_ID=${nodeId} for orchestrator + whoami`);
+  appendEnv("WHOAMI_NAME", nodeId);
+  log(`Materialised shared identity ORCH_NODE_ID=WHOAMI_NAME=${nodeId}`);
 }
 
 // 5. Summary

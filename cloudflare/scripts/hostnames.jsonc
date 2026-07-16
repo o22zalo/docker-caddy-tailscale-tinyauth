@@ -1,19 +1,15 @@
 {
-  // Subdomains sẽ tạo cho {hostname}.{DOMAIN}
-  // Thêm/bớt tùy nhu cầu. Mỗi entry → 1 CNAME record + ingress rule.
-  "hostnames": [
-    "auth", // Tinyauth login page
-    "files", // Filebrowser
-    "ttyd", // WebSSH/ttyd terminal
-    "webssh", // WebSSH/ttyd terminal
-    "whoami",
-    "dozzle", // Docker logs
-    "logs", // Docker logs
+  // Remotely-managed named tunnel ingress. "hostname" không có dấu chấm sẽ
+  // tự ghép .{DOMAIN}. Rule SSH dùng sshd trên CI runner qua host-gateway.
+  "ingress": [
+    { "hostname": "auth", "service": "http://caddy:80" },
+    { "hostname": "files", "service": "http://caddy:80" },
+    { "hostname": "ttyd", "service": "http://caddy:80" },
+    { "hostname": "webssh", "service": "http://caddy:80" },
+    { "hostname": "whoami", "service": "http://caddy:80" },
+    { "hostname": "dozzle", "service": "http://caddy:80" },
+    { "hostname": "logs", "service": "http://caddy:80" },
+    { "hostname": "ssh", "service": "ssh://host.docker.internal:22" }
   ],
-
-  // Service URL mà tất cả hostname trỏ về
-  "service_url": "http://caddy:80",
-
-  // Catch-all rule (ingress cuối cùng, không match hostname nào)
-  "catch_all": "http_status:404",
+  "catch_all": "http_status:404"
 }

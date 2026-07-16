@@ -75,11 +75,11 @@ COMPOSE_PROFILES=core
 
 `litestream` và `rclone` không cần thêm vào `COMPOSE_PROFILES` khi dùng
 `node scripts/up.mjs` hoặc CI: helper tự bật nếu `.env` có
-`LITESTREAM_<index>_SERVICE` hoặc `RCLONE_<index>_NAME`. CI runner cũng tự bật
-`nodesync` khi `SSH_ENABLE=1`, và tự bật `tailscale` nếu channel Tailscale được
-bật. Chỉ node nhận dữ liệu đặt `NODESYNC_SYNC_ON_START=1`; khi đó restore/pull →
-sync phải thành công trước khi app stack start. Mặc định chỉ sync `ci-data`,
-không sync toàn `ci-runtime` vì chứa identity/key/state riêng từng node.
+`LITESTREAM_<index>_SERVICE` hoặc `RCLONE_<index>_NAME`. Nodesync độc lập với hai
+luồng này: khi `SSH_ENABLE=1` và `NODESYNC_SYNC_PATHS` không rỗng, runner tự
+bootstrap sshd trên host, tìm predecessor theo `startedAt` RTDB và sync paths đã
+opt-in qua Tailscale → Cloudflare → Hybrid. Mặc định paths rỗng nên không SSH hay
+thay đổi dữ liệu. Xem `nodesync/README.md`.
 
 ```bash
 make profiles   # xem profile / service hiện tại

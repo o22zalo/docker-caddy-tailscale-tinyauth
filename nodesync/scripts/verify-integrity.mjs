@@ -11,9 +11,9 @@
 //       So sánh 2 thư mục CỤC BỘ (dùng cho test 2-node khi cả 2 data dir cùng
 //       mount vào máy — KIỂM CHỨNG THẬT không cần ssh/docker).
 //   (B) --peer  (mặc định)
-//       So sánh workspace cục bộ với node01 qua ssh (dùng lib/ssh.mjs resolve).
+//       So sánh workspace cục bộ với source qua ssh (dùng lib/ssh.mjs resolve).
 //
-//   node scripts/verify-integrity.mjs --local ./ci-data-node01 ./ci-data-node02
+//   node scripts/verify-integrity.mjs --local ./ci-data-source ./ci-data-receiver
 //   node scripts/verify-integrity.mjs --local A B --json
 //   node scripts/verify-integrity.mjs --dry-run
 //   node scripts/verify-integrity.mjs --silent
@@ -89,8 +89,8 @@ function totalSize(map) {
 function reportLocal(dirA, dirB) {
   const startedAt = Date.now();
   log("=== KIỂM TRA TOÀN VẸN (chế độ --local: so 2 thư mục cục bộ) ===");
-  log(`  A (node01) = ${dirA}`);
-  log(`  B (node02) = ${dirB}`);
+  log(`  A (source) = ${dirA}`);
+  log(`  B (receiver) = ${dirB}`);
 
   if (DRY_RUN) { log("[DRY RUN] sẽ scan + so sánh checksum/size/mtime 2 thư mục."); return { dryRun: true }; }
 
@@ -111,11 +111,11 @@ function reportLocal(dirA, dirB) {
     differ.slice(0, 20).forEach((f) => warn(`    ≠ ${f.rel}: A(sha=${f.a.sha256.slice(0, 12)},${human(f.a.size)},mode=${f.a.mode.toString(8)},mtime=${f.a.mtimeMs}) vs B(sha=${f.b.sha256.slice(0, 12)},${human(f.b.size)},mode=${f.b.mode.toString(8)},mtime=${f.b.mtimeMs})`));
   }
   if (onlyA.length) {
-    warn(`  CHỈ CÓ Ở A (node01), thiếu ở B (node02): ${onlyA.length} file`);
+    warn(`  CHỈ CÓ Ở A (source), thiếu ở B (receiver): ${onlyA.length} file`);
     onlyA.slice(0, 20).forEach((f) => warn(`    − ${f.rel} (${human(f.size)})`));
   }
   if (onlyB.length) {
-    warn(`  CHỈ CÓ Ở B (node02), thừa so với A: ${onlyB.length} file`);
+    warn(`  CHỈ CÓ Ở B (receiver), thừa so với A: ${onlyB.length} file`);
     onlyB.slice(0, 20).forEach((f) => warn(`    + ${f.rel} (${human(f.size)})`));
   }
 

@@ -35,6 +35,9 @@ services:
     volumes:
       - ${DOCKER_VOLUME_RUNTIME_ABS:-../ci-runtime}/tailscale/state:/var/lib/tailscale
       - ./serve.json:/config/serve.json:ro
+    # Tailscale Serve TCP forward trỏ tới sshd tự bootstrap trên CI runner.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - proxy
     profiles:

@@ -75,10 +75,11 @@ function nodesyncConfig(envFile) {
   const env = { ...parseEnv(envFile), ...process.env };
   return {
     enabled: envTruthy(env.SSH_ENABLE),
-    syncOnStart: envTruthy(env.NODESYNC_SYNC_ON_START),
+    paths: String(env.NODESYNC_SYNC_PATHS || "").split(",").map((x) => x.trim()).filter(Boolean),
     tailscaleChannel: envTruthy(env.SSH_CHANNEL_TAILSCALE_ENABLE ?? "1"),
     cloudflareChannel: envTruthy(env.SSH_CHANNEL_CLOUDFLARE_ENABLE),
     hybridChannel: envTruthy(env.SSH_CHANNEL_HYBRID_ENABLE),
+    orchestratorEnabled: envTruthy(env.CONSUL_ENABLE),
   };
 }
 
@@ -154,7 +155,7 @@ const nodesync = nodesyncConfig(envFile);
 if (nodesync.enabled) {
   ensureProfile("nodesync", envFile);
   if (nodesync.tailscaleChannel) ensureProfile("tailscale", envFile);
-  log(`Nodesync enabled; sync-on-start=${nodesync.syncOnStart}; tailscale-channel=${nodesync.tailscaleChannel}`);
+  log(`Nodesync enabled; paths=${nodesync.paths.length}; tailscale-channel=${nodesync.tailscaleChannel}`);
 }
 process.env.DOCKER_VOLUME_RUNTIME_ABS = resolveVolumeRoot(envGet(envFile, "DOCKER_VOLUME_RUNTIME"), "ci-runtime");
 process.env.DOCKER_VOLUME_DATA_ABS = resolveVolumeRoot(envGet(envFile, "DOCKER_VOLUME_DATA"), "ci-data");
@@ -165,18 +166,37 @@ await Promise.all([
   runPrefixed("rclone", `node rclone/scripts/pull.mjs${SILENT ? " --silent" : ""}`),
 ]);
 
-// Node nhận dữ liệu: start transport/SSH sidecars trước, sync xong mới start app.
-if (nodesync.enabled && nodesync.syncOnStart) {
-  const prestartServices = nodesync.tailscaleChannel ? "tailscale nodesync" : "nodesync";
-  run(composeArgs(`up -d ${prestartServices}`));
-  await waitForHealthy("nodesync");
-  if (nodesync.tailscaleChannel && !(await waitForTailscale())) {
-    const hasFallback = nodesync.cloudflareChannel || nodesync.hybridChannel;
-    if (!hasFallback) throw new Error("Tailscale chưa sẵn sàng và không có SSH channel fallback");
-    err("WARN: Tailscale chưa sẵn sàng; sync sẽ thử Cloudflare/Hybrid fallback.");
-  }
-  run(composeArgs(`exec -T nodesync node scripts/sync.mjs${SILENT ? " --silent" : ""}`));
-  log("Nodesync pre-start hoàn tất; tiếp tục start app stack.");
+// Nodesync zero-touch: bootstrap host SSH, register RTDB, discover predecessor,
+// rồi sync configured paths. Không restore/pull dữ liệu trong sidecar này.
+if (nodesync.enabled) {
+  run(`node scripts/runners/setup-nodesync-ssh.mjs${DRY_RUN ? " --dry-run" : ""}`);
+  if (nodesync.paths.length) {
+    if (!nodesync.orchestratorEnabled) throw new Error("NODESYNC_SYNC_PATHS có dữ liệu nhưng CONSUL_ENABLE!=1; RTDB discovery là bắt buộc");
+    // cloudflared được start khi Cloudflare channel bật để client ProxyCommand dùng
+    // chính binary/container hiện hữu; caddy dependency có thể được Compose kéo theo.
+    const services = ["orchestrator", "nodesync"];
+    if (nodesync.tailscaleChannel) services.push("tailscale");
+    if (nodesync.cloudflareChannel) services.push("cloudflared");
+    run(composeArgs(`up -d ${services.join(" ")}`));
+    await waitForHealthy("nodesync");
+    if (nodesync.tailscaleChannel) {
+      if (!(await waitForTailscale())) {
+        const hasFallback = nodesync.cloudflareChannel || nodesync.hybridChannel;
+        if (!hasFallback) throw new Error("Tailscale chưa sẵn sàng và không có channel fallback");
+        err("WARN: Tailscale chưa sẵn sàng; thử Cloudflare/Hybrid fallback.");
+      } else {
+        // Userspace Tailscale không route host port tự động: dùng Serve TCP trên
+        // tailnet IP, forward về sshd đã bootstrap ở CI runner.
+        run(dc("exec tailscale tailscale serve --bg --tcp=2222 tcp://host.docker.internal:22"));
+        log("Tailscale SSH transport ready: tailnet-ip:2222 → runner sshd:22");
+      }
+    }
+    // Registration ghi node booting ngay; đợi ngắn để RTDB server timestamp ổn định.
+    if (!DRY_RUN) await new Promise((done) => setTimeout(done, 3000));
+    run(composeArgs(`exec -T orchestrator node scripts/discover-predecessor.mjs`));
+    run(composeArgs(`exec -T nodesync node scripts/sync.mjs${SILENT ? " --silent" : ""}`));
+    log("Nodesync dynamic sync hoàn tất; tiếp tục startup độc lập của stack.");
+  } else log("NODESYNC_SYNC_PATHS rỗng: không discover/SSH/rsync.");
 }
 
 // Start stack

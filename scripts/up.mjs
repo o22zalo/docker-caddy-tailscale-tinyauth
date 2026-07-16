@@ -71,7 +71,7 @@ function getNodesyncConfig() {
   const env = { ...parseEnv(ENV), ...process.env };
   return {
     enabled: truthy(env.SSH_ENABLE),
-    syncOnStart: truthy(env.NODESYNC_SYNC_ON_START),
+    syncOnStart: String(env.NODESYNC_SYNC_PATHS || "").split(",").some(Boolean),
     tailscale: truthy(env.SSH_CHANNEL_TAILSCALE_ENABLE ?? "1"),
   };
 }

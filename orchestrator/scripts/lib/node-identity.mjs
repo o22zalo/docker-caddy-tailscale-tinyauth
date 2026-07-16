@@ -12,6 +12,7 @@ import { hostname } from "node:os";
 import { execSync } from "node:child_process";
 import { getTailscaleInfo } from "./tailscale-info.mjs";
 import { getSshRuntimeIdentity } from "./ssh-identity.mjs";
+import { getHostSshInfo } from "./host-ssh-info.mjs";
 
 function safeHostname() {
   try {
@@ -108,6 +109,7 @@ export function getNodeIdentity() {
     // Thông tin runtime/nodesync (user hệ thống, cwd, kênh sync, ssh users…).
     // Rẻ (không shell ra docker) nên luôn kèm.
     runtime: getSshRuntimeIdentity(),
+    ssh: getHostSshInfo(),
   };
 }
 

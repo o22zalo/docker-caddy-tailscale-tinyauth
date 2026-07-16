@@ -3,16 +3,14 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "nodesync: đồng bộ dữ liệu giữa các node qua SSH (Tailscale→Cloudflare→Hybrid), multi-user SSH_<n>_*, treo request khi sync.",
+  "description": "nodesync: đồng bộ dữ liệu giữa các node qua SSH (Tailscale→Cloudflare→Hybrid), multi-user SSH_<n>_*.",
   "bin": {
     "nodesync": "scripts/entrypoint.mjs"
   },
   "scripts": {
     "start": "node scripts/entrypoint.mjs",
     "sync": "node scripts/sync.mjs",
-    "resolve": "node scripts/resolve-peer.mjs",
-    "verify": "node scripts/verify-integrity.mjs",
-    "hold": "node scripts/hold-requests.mjs"
+    "verify": "node scripts/verify-integrity.mjs"
   },
   "dependencies": {
     "jsonc-parser": "^3.3.1"

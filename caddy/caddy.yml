@@ -34,7 +34,6 @@ services:
       CADDY_INGRESS_NETWORKS: ${CADDY_INGRESS_NETWORKS:-proxy}
       CADDY_DOCKER_MODE: ${CADDY_DOCKER_MODE:-standalone}
       WHOAMI_TINYAUTH_ENABLED: ${WHOAMI_TINYAUTH_ENABLED:-false}
-      SSH_ENABLE: ${SSH_ENABLE:-0}
     volumes:
       # Read-only socket — caddy-docker-proxy chỉ cần read. Nếu cần write → cân nhắc tecnativa/docker-socket-proxy.
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -58,12 +57,6 @@ services:
       caddy_1.forward_auth: "@whoami_tinyauth_enabled tinyauth:3000"
       caddy_1.forward_auth.uri: /api/auth/caddy
       caddy_1.forward_auth.copy_headers: Remote-User Remote-Name Remote-Email Remote-Groups
-      # Hold gate dùng chung: khi SSH_ENABLE=1, mọi app import snippet này trước
-      # reverse_proxy. Gate trả 204 bình thường hoặc 503 + Retry-After khi sync.
-      caddy_2: (nodesync_hold_gate)
-      caddy_2.@nodesync_enabled.expression: '"{env.SSH_ENABLE}" == "1"'
-      caddy_2.forward_auth: "@nodesync_enabled nodesync:8088"
-      caddy_2.forward_auth.uri: /hold
     profiles:
       - caddy
       - core

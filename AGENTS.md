@@ -45,7 +45,7 @@ README.md                # Human-facing docs
 | `cloudflare/` | `cloudflare.yml` | `cloudflare/.env.example` | cloudflared public edge       |
 | `tailscale/`  | `tailscale.yml`  | `tailscale/.env.example`  | Profiles: `tailscale`, `full` |
 | `orchestrator/`| `orchestrator.yml`| `orchestrator/.env.example`| RTDB leader/handoff sidecar   |
-| `nodesync/`   | `nodesync.yml`   | `nodesync/.env.example`   | SSH sync + hold-gate sidecar  |
+| `nodesync/`   | `nodesync.yml`   | `nodesync/.env.example`   | Dynamic SSH sync controller  |
 
 ### Naming rules
 
@@ -213,7 +213,7 @@ joins `proxy`.
 | `filebrowser`| Filebrowser only                                     |
 | `webssh`     | WebSSH/ttyd only                                     |
 | `orchestrator`| Orchestrator sidecar only                           |
-| `nodesync`   | SSH sync + hold-gate sidecar only                    |
+| `nodesync`   | Dynamic SSH sync controller only                    |
 | `core`       | caddy + tinyauth + whoami + cloudflare + orchestrator (public path) |
 | `full`       | core + tailscale + dozzle + filebrowser + webssh + nodesync |
 

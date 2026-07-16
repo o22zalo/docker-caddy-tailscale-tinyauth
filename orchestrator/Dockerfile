@@ -7,10 +7,10 @@
 #   - Đọc/ghi workspace repo (mount read-only mặc định, /data ghi được)
 #   - Kết nối Firebase RTDB làm consul điều phối leader/standby
 #
-# Base: node 20 alpine + docker-cli + compose plugin (để chạy `docker compose`)
+# Base: Node 24 LTS trên Alpine 3.23 + docker-cli + compose plugin (để chạy `docker compose`)
 # =============================================================================
 
-FROM node:20-alpine
+FROM node:24-alpine3.23
 
 # docker-cli + compose plugin: cần để sidecar gọi `docker compose ...` qua socket
 RUN apk add --no-cache \

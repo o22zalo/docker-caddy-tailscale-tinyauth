@@ -38,8 +38,8 @@ services:
     volumes:
       # Toàn quyền điều khiển compose / xem log của toàn stack.
       - /var/run/docker.sock:/var/run/docker.sock
-      # Xem dữ liệu toàn repo (read-only). Đổi thành rw nếu hook cần ghi.
-      - ..:/workspace:ro
+      # Ghi predecessor manifest dùng chung cho nodesync controller.
+      - ..:/workspace:rw
     networks:
       - proxy
     profiles:

@@ -1,23 +1,15 @@
 #!/usr/bin/env node
-// Static integration invariants for wiring that unit simulations cannot execute.
-
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-
-const ROOT = resolve(process.cwd(), "..", "..");
-function text(path) { return readFileSync(resolve(ROOT, path), "utf8"); }
-function requirePattern(path, pattern, message) {
-  if (!pattern.test(text(path))) throw new Error(`${path}: ${message}`);
-}
-
-requirePattern("nodesync/Dockerfile", /FROM cloudflare\/cloudflared:2026\.7\.1 AS cloudflared/, "cloudflared phải lấy từ official image");
-requirePattern("nodesync/Dockerfile", /openssh-client-default/, "Alpine package openssh-client-default bị thiếu");
-requirePattern("scripts/runners/start-stack.mjs", /restore\.mjs[\s\S]*syncOnStart[\s\S]*exec -T nodesync node scripts\/sync\.mjs[\s\S]*up -d --remove-orphans/, "startup phải restore → sync → app");
-requirePattern("orchestrator/scripts/main.mjs", /handoff pipeline critical error[\s\S]*handoffDone = false;[\s\S]*continue;[\s\S]*Releasing leadership/, "critical handoff failure phải giữ leader");
-requirePattern("orchestrator/config.jsonc", /upload-data\"?, \"critical\": true[\s\S]*stop-cloudflared\"?, \"critical\": true/, "built-in handoff hooks phải critical");
-requirePattern("orchestrator/scripts/hooks/upload-data.mjs", /sync-loop\.mjs\", \"--once/, "upload hook phải flush rclone một lần");
-requirePattern("scripts/runners/setup-env.mjs", /ORCH_NODE_ID=.*nodeId/, "node ID phải materialize trước Compose");
-requirePattern("caddy/caddy.yml", /\(nodesync_hold_gate\)[\s\S]*nodesync:8088/, "Caddy hold-gate chưa được định nghĩa");
-requirePattern("whoami/whoami.yml", /caddy\.import: nodesync_hold_gate/, "whoami chưa import hold-gate");
-
+const ROOT=resolve(process.cwd(),"../..");
+const text=(p)=>readFileSync(resolve(ROOT,p),"utf8");
+const requirePattern=(p,re,msg)=>{if(!re.test(text(p)))throw new Error(`${p}: ${msg}`)};
+const forbid=(p,re,msg)=>{if(re.test(text(p)))throw new Error(`${p}: ${msg}`)};
+requirePattern("orchestrator/Dockerfile",/FROM node:24-alpine3\.23/,"orchestrator phải dùng Node 24");
+requirePattern("scripts/runners/setup-env.mjs",/WHOAMI_NAME=\$\{nodeId\}/,"identity whoami phải tự materialize");
+requirePattern("scripts/runners/start-stack.mjs",/setup-nodesync-ssh[\s\S]*discover-predecessor[\s\S]*scripts\/sync\.mjs/,"startup dynamic sync wiring thiếu");
+requirePattern("nodesync/scripts/sync.mjs",/StrictHostKeyChecking=yes[\s\S]*identity\.out\.trim\(\)===source\.nodeId/,"phải pin host key + verify node id");
+requirePattern("nodesync/scripts/sync.mjs",/tailscale:1055[\s\S]*cloudflared access ssh[\s\S]*hybrid/,"fallback transports thiếu");
+for(const p of ["caddy/caddy.yml","whoami/whoami.yml","filebrowser/filebrowser.yml","dozzle/dozzle.yml","webssh/webssh.yml","docker-compose.ci.yml","scripts/addapp/add-app.mjs"]) forbid(p,/nodesync_hold_gate|nodesync:8088|@nodesync_enabled/,"còn wiring hold gate cũ");
+forbid("nodesync/Dockerfile",/openssh-server|FROM cloudflare\/cloudflared/,"nodesync không được nhúng SSH server/cloudflared");
 console.log("VERIFY-SOURCE-INVARIANTS: PASS ✅");

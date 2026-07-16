@@ -1,23 +1,5 @@
-# =============================================================================
-# nodesync/nodesync.yml — SSH sync sidecar (đồng bộ dữ liệu giữa các node)
-# =============================================================================
-#
-# Mục đích trong dự án:
-#   Cho phép các node (runner CI) CHÉP FILE + THỰC THI LỆNH cho nhau qua SSH,
-#   để đồng bộ dữ liệu khi chuyển ca (node02 pull remote → diff node01 → sync).
-#   Kênh: Tailscale → Cloudflare → Hybrid (cấu hình + fallback).
-#
-# "Toàn quyền": mount FULL workspace repo (rw) + docker.sock (chạy lệnh trong/
-#   ngoài docker), chạy root (user=0) để có quyền cao nhất khi cần.
-#
-# Bật bằng: SSH_ENABLE=1 (entrypoint idle nếu =0) + profile nodesync/full.
-#
-# Env — thứ tự ưu tiên: ../.env → ./.env → environment (cao nhất).
-# Catalog: nodesync/.env.example
-#
-# Profiles: nodesync | full
-# =============================================================================
-
+# nodesync client/controller sidecar. Không chạy sshd/Tailscale/cloudflared;
+# tái sử dụng transport hiện hữu và SSH server tự bootstrap trên CI runner.
 services:
   nodesync:
     build:
@@ -26,8 +8,6 @@ services:
     image: proxy-stack-nodesync:local
     container_name: nodesync
     restart: unless-stopped
-    # Chạy root để tạo user / chạy mọi lệnh (kể cả trong docker qua socket).
-    user: "0:0"
     stop_grace_period: 20s
     env_file:
       - path: ../.env
@@ -35,29 +15,18 @@ services:
       - path: .env
         required: false
     environment:
-      # Thư mục workspace mount (chứa dữ liệu cần sync + file cờ hold).
       SSH_WORKSPACE: /workspace
+      NODESYNC_SSH_KEY_FILE: /runtime/id_ed25519
     volumes:
-      # Full workspace repo (đọc/GHI — cần ghi để rsync dữ liệu về + tạo cờ hold).
       - ..:/workspace:rw
-      # Điều khiển docker (chạy lệnh trong/ngoài docker).
       - /var/run/docker.sock:/var/run/docker.sock
-      # State ssh host keys (giữ qua restart).
-      - ${DOCKER_VOLUME_RUNTIME_ABS:-../ci-runtime}/nodesync/ssh:/etc/ssh
+      - ${DOCKER_VOLUME_RUNTIME_ABS:-../ci-runtime}/nodesync:/runtime:rw
     working_dir: /app
-    expose:
-      - "22"
-      - "8088"
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8088/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
-      interval: 5s
+      test: ["CMD", "node", "-e", "process.exit(0)"]
+      interval: 10s
       timeout: 3s
-      retries: 12
-      start_period: 10s
-    # Không publish SSH ra host mặc định. Tailscale/Cloudflare đi qua proxy nội bộ;
-    # nếu cần direct-host test, thêm override Compose `ports: ["2222:22"]`.
+      retries: 3
     networks:
       - proxy
-    profiles:
-      - nodesync
-      - full
+    profiles: [nodesync, full]

@@ -39,8 +39,6 @@
     "nodesync/scripts/entrypoint.mjs",
     "nodesync/scripts/setup-users.mjs",
     "nodesync/scripts/sync.mjs",
-    "nodesync/scripts/hold-gate.mjs",
-    "nodesync/scripts/hold-requests.mjs",
     "nodesync/scripts/verify-integrity.mjs",
     "nodesync/scripts/lib/env.mjs",
     "nodesync/scripts/lib/log.mjs",

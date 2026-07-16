@@ -184,19 +184,25 @@ function showStep(label, res) {
 }
 
 // ── Hostnames config ─────────────────────────────────────────────
-function loadHostnames(domain) {
-  let hostnames = ["auth", "files", "ttyd", "webssh", "whoami", "dozzle", "logs"];
-  let serviceUrl = "http://caddy:80";
+function loadIngress(domain) {
+  const fallback = ["auth", "files", "ttyd", "webssh", "whoami", "dozzle", "logs"]
+    .map((hostname) => ({ hostname, service: "http://caddy:80" }));
+  let rules = fallback;
   let catchAll = "http_status:404";
   if (existsSync(HOSTNAMES_FILE)) {
-    const raw = readFileSync(HOSTNAMES_FILE, "utf8");
-    const cfg = parse(raw);
-    if (cfg.hostnames?.length) hostnames = cfg.hostnames;
-    if (cfg.service_url) serviceUrl = cfg.service_url;
+    const cfg = parse(readFileSync(HOSTNAMES_FILE, "utf8"));
+    if (Array.isArray(cfg.ingress) && cfg.ingress.length) rules = cfg.ingress;
+    else if (Array.isArray(cfg.hostnames)) rules = cfg.hostnames.map((hostname) => ({ hostname, service: cfg.service_url || "http://caddy:80" }));
     if (cfg.catch_all) catchAll = cfg.catch_all;
   }
-  const fqdns = hostnames.map((h) => `${h}.${domain}`);
-  return { hostnames, fqdns, serviceUrl, catchAll };
+  const ingress = rules.map((rule) => {
+    if (!rule.hostname || !rule.service) throw new Error("Mỗi ingress cần hostname và service");
+    const hostname = rule.hostname.includes(".") ? rule.hostname : `${rule.hostname}.${domain}`;
+    if (!/^[a-zA-Z0-9.-]+$/.test(hostname)) throw new Error(`Ingress hostname không hợp lệ: ${hostname}`);
+    if (!/^(https?|ssh|tcp):\/\//.test(rule.service)) throw new Error(`Ingress service không hợp lệ: ${rule.service}`);
+    return { hostname, service: rule.service };
+  });
+  return { ingress, fqdns: ingress.map((x) => x.hostname), catchAll };
 }
 
 // ── Main ─────────────────────────────────────────────────────────
@@ -268,7 +274,7 @@ async function main() {
   }
 
   // 7. Hostnames
-  const { fqdns, serviceUrl, catchAll } = loadHostnames(domain);
+  const { ingress, fqdns, catchAll } = loadIngress(domain);
 
   // ── Confirmation summary ───────────────────────────────────────
   console.log("─".repeat(60));
@@ -281,7 +287,8 @@ async function main() {
   console.log(`Tunnel ID:       ${tunnelId} (${tunnelAction})`);
   console.log(`Tunnel token:    ${tunnelToken === "(new)" ? "(new)" : tunnelToken.slice(0, 20) + "..."} (${tokenAction})`);
   console.log(`Tunnel target:   ${env.CF_TUNNEL_TARGET || `${tunnelId}.cfargotunnel.com`}`);
-  console.log(`Ingress:         ${fqdns.length} hostnames -> ${serviceUrl}`);
+  console.log(`Ingress:         ${ingress.length} rules`);
+  for (const rule of ingress) console.log(`  ${rule.hostname} -> ${rule.service}`);
   console.log(`Catch-all:       ${catchAll}`);
   console.log(`DNS records:`);
   for (const h of fqdns) console.log(`  CNAME  ${h} -> {tunnel_id}.cfargotunnel.com  (proxied)`);
@@ -450,10 +457,10 @@ async function main() {
   // Ingress
   if (tunnelId) {
     console.log(`\n==> Configuring ingress...`);
-    const ingress = [...fqdns.map((h) => ({ hostname: h, service: serviceUrl })), { service: catchAll }];
-    const res = await cf("PUT", `/accounts/${accountId}/cfd_tunnel/${tunnelId}/configurations`, { config: { ingress } }, authHeaders);
+    const finalIngress = [...ingress, { service: catchAll }];
+    const res = await cf("PUT", `/accounts/${accountId}/cfd_tunnel/${tunnelId}/configurations`, { config: { ingress: finalIngress } }, authHeaders);
     if (res.success) {
-      showStep(`Ingress: ${fqdns.length} hostnames -> ${serviceUrl}`, res);
+      showStep(`Ingress: ${ingress.length} typed rules`, res);
     } else {
       showStep("Ingress config failed", res);
       hasFailure = true;

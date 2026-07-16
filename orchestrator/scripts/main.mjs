@@ -21,6 +21,7 @@ import { tryAcquire, renewLeadership, releaseLeadership, getLeader, describeLead
 import { runHandoffPipeline, loadConfig } from "./hooks/index.mjs";
 import { isRunning } from "./lib/docker.mjs";
 import { log, warn, error } from "./lib/log.mjs";
+import { monitorLeaderWhoami } from "./lib/leader-whoami-monitor.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -199,6 +200,8 @@ async function main() {
           await pushEvent("leader.acquired", { term, nodeId: identity.nodeId });
           log(`Now LEADER (term=${term}). Serving traffic.`);
           await logElectionSnapshot("leader-acquired", { self: identity.nodeId, term });
+          const whoamiUrl = process.env.ORCH_PUBLIC_URL || process.env.WHOAMI_HOST || (process.env.DOMAIN ? `https://whoami.${process.env.DOMAIN}` : "");
+          monitorLeaderWhoami({ getLeader, selfId: identity.nodeId, url: whoamiUrl, log, warn }).catch((e) => warn(`[leader-whoami] monitor error: ${e.message}`));
         } else if (blockedBy?.nodeId) {
           log(`Standby: leader still active (${describeLeader(blockedBy)} ttlMs=${ttlMs}). Waiting.`);
           await logElectionSnapshot("standby-blocked", { self: identity.nodeId, blockedBy: blockedBy.nodeId, ttlMs });

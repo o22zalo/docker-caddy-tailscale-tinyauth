@@ -47,8 +47,7 @@ services:
     labels:
       caddy: ${CADDY_FILEBROWSER_HOST:-${FILEBROWSER_HOST:-http://files.${DOMAIN:-localhost}}}
       caddy.reverse_proxy: "{{upstreams 80}}"
-      caddy.import: nodesync_hold_gate *
-      caddy.import_1: tinyauth_forwarder *
+      caddy.import: tinyauth_forwarder *
     profiles:
       - filebrowser
       - full

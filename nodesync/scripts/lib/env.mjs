@@ -40,10 +40,8 @@ export function loadConfig() {
   const file = resolve(__dirname, "..", "..", "config.jsonc");
   const defaults = {
     channel_priority: ["tailscale", "cloudflare", "hybrid"],
-    sync_paths: ["ci-data"],
+    sync_paths: [],
     rsync_options: ["-az", "--delete", "--checksum", "--safe-links", "--stats", "--human-readable"],
-    hold: { mode: "retry-after", retry_after_seconds: 15, flag_file: "ci-runtime/nodesync/hold.flag" },
-    sshd: { port: 22, allow_all_commands: true, password_authentication: true, permit_root_login: true },
     ssh_connect_timeout_seconds: 10,
     sync_timeout_seconds: 600,
     diff_timeout_seconds: 120,
@@ -57,15 +55,8 @@ export function loadConfig() {
     }
   }
   // Override bằng env (nếu có).
-  if (process.env.NODESYNC_SYNC_PATHS) {
+  if (Object.hasOwn(process.env, "NODESYNC_SYNC_PATHS")) {
     cfg.sync_paths = process.env.NODESYNC_SYNC_PATHS.split(",").map((s) => s.trim()).filter(Boolean);
-  }
-  if (process.env.NODESYNC_RETRY_AFTER_SECONDS) {
-    const retryAfter = Number(process.env.NODESYNC_RETRY_AFTER_SECONDS);
-    if (!Number.isInteger(retryAfter) || retryAfter < 1 || retryAfter > 3600) {
-      throw new Error("NODESYNC_RETRY_AFTER_SECONDS phải là số nguyên 1..3600");
-    }
-    cfg.hold = { ...cfg.hold, retry_after_seconds: retryAfter };
   }
   return cfg;
 }
@@ -123,21 +114,6 @@ export function enabledChannels(config = loadConfig(), env = process.env) {
 // nodesync có được bật không (SSH_ENABLE=1).
 export function nodesyncEnabled(env = process.env) {
   return truthy(env.SSH_ENABLE, "0");
-}
-
-// Thông tin peer node để kết nối (dùng khi resolver tailscale không có).
-export function peerConfig(env = process.env) {
-  return {
-    // Hostname/alias trên tailnet của peer (vd node01 → "proxy-stack-a").
-    tailscaleHost: env.NODESYNC_PEER_TAILSCALE_HOST || env.SSH_PEER_TAILSCALE_HOST || "",
-    // Hostname Cloudflare access (vd ssh-node01.example.com).
-    cloudflareHost: env.NODESYNC_PEER_CLOUDFLARE_HOST || env.SSH_PEER_CLOUDFLARE_HOST || "",
-    // IP/host trực tiếp (hybrid / fallback cuối).
-    directHost: env.NODESYNC_PEER_HOST || env.SSH_PEER_HOST || "",
-    port: Number(env.NODESYNC_PEER_PORT || env.SSH_PEER_PORT || 22),
-    // User dùng để ssh sang peer (mặc định user index 1).
-    user: env.NODESYNC_PEER_USER || env.SSH_PEER_USER || "",
-  };
 }
 
 export { truthy, maybeB64 };
