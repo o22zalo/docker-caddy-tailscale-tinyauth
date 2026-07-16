@@ -153,6 +153,20 @@ const config = loadConfig();
 7. CI overrides go in `docker-compose.ci.yml` (quick tunnel, catch-all `:80`, `labels: !override` where needed).
 8. Requires Docker Compose **v2.24+** (`include`, `!override`).
 
+### Shared network name
+
+`networks/networks.yml` intentionally sets the Docker network name to global
+`proxy` instead of the Compose-scoped default (`<project>_proxy`). This keeps
+`CADDY_INGRESS_NETWORKS=proxy` stable for caddy-docker-proxy and lets service
+fragments resolve the same network name in include and multi-file modes.
+
+Tradeoff: two Compose projects on the same Docker host that both use a network
+named `proxy` can share that bridge network. This is expected behavior here, not
+a bug. Do not run untrusted stacks with the same `proxy` network name on the same
+host. If isolation matters more than the stable name, change the network name and
+update `CADDY_INGRESS_NETWORKS`, docs, examples, and any external service that
+joins `proxy`.
+
 ### Profiles — principles (enable / disable services)
 
 **Docs:** https://docs.docker.com/compose/how-tos/profiles/

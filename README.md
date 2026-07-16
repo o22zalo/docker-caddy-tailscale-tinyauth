@@ -148,6 +148,17 @@ Do **not** copy blank lines like `TINYAUTH_SERVER_SOCKETPATH=` — empty optiona
 
 Public apps that should not go through Tinyauth: see [`docs/deploys/public-apps.md`](docs/deploys/public-apps.md).
 
+### Shared Docker network
+
+The stack intentionally uses a global Docker bridge network named `proxy`.
+That stable name keeps `CADDY_INGRESS_NETWORKS=proxy` working the same way in
+Compose `include` mode and in the documented multi-file command.
+
+Tradeoff: another Compose project on the same Docker host can also attach to a
+network named `proxy`, so both stacks may share network reachability. Keep the
+name as-is for this repo. Use a separate Docker host, or rename the network and
+update `CADDY_INGRESS_NETWORKS`, if strict stack isolation matters.
+
 ### Important variables (minimal)
 
 | Variable | Purpose |

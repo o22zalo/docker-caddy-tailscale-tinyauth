@@ -90,7 +90,17 @@ export function paths(env, config) {
 }
 
 export function configText(item) {
-  if (item.configBase64) return Buffer.from(item.configBase64, "base64").toString("utf8");
+  if (item.configBase64) {
+    const compact = item.configBase64.replace(/\s+/g, "");
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(compact) || compact.length % 4 !== 0) {
+      throw new Error(`Invalid RCLONE_${item.index}_CONFIG_BASE64: value is not valid base64.`);
+    }
+    const decoded = Buffer.from(compact, "base64");
+    if (decoded.length === 0 || decoded.toString("base64").replace(/=+$/, "") !== compact.replace(/=+$/, "")) {
+      throw new Error(`Invalid RCLONE_${item.index}_CONFIG_BASE64: value could not be decoded.`);
+    }
+    return decoded.toString("utf8");
+  }
   return item.configRaw.replaceAll("\\n", "\n");
 }
 
