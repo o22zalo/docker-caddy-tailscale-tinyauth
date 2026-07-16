@@ -12,25 +12,30 @@
 #   - sudo: user SSH_<n>_* được cấp NOPASSWD:ALL → chạy MỌI lệnh (kể cả root).
 #
 # Base: node 20 alpine.
+# cloudflared không có trong Alpine stable repository; lấy binary từ image
+# chính thức, cùng version đang pin tại cloudflare/cloudflare.yml.
 # =============================================================================
+
+FROM cloudflare/cloudflared:2026.7.1 AS cloudflared
 
 FROM node:20-alpine
 
+COPY --from=cloudflared /usr/local/bin/cloudflared /usr/local/bin/cloudflared
+
 RUN apk add --no-cache \
-      openssh-server \
-      openssh-client \
-      rsync \
-      rclone \
-      docker-cli \
-      docker-cli-compose \
-      cloudflared \
-      sudo \
-      bash \
-      coreutils \
-      findutils \
-      curl \
-      tini \
-    && rm -rf /var/cache/apk/*
+  openssh-server \
+  openssh-client \
+  rsync \
+  rclone \
+  docker-cli \
+  docker-cli-compose \
+  sudo \
+  bash \
+  coreutils \
+  findutils \
+  curl \
+  tini \
+  && rm -rf /var/cache/apk/*
 
 # Tailscale CLI (client) — dùng để resolve peer qua tailnet (LocalAPI).
 # Cài từ package alpine nếu có; nếu không, kênh tailscale sẽ báo reason rõ ràng.
