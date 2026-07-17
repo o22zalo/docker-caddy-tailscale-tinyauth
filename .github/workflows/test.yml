@@ -27,7 +27,7 @@ jobs:
     if: >-
       (github.event_name == 'workflow_dispatch')
       ||
-      (github.event_name == 'push' && github.repository == 'docker-caddy-tailscale-tinyauth')
+      (github.event_name == 'push' && github.repository == 'hoahien7281/docker-caddy-tailscale-tinyauth')
 
     steps:
       # ── Cache ─────────────────────────────────────────────────────
