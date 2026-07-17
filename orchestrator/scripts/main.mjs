@@ -119,6 +119,15 @@ async function logElectionSnapshot(label, extra = {}) {
   }
 }
 
+async function runCleanup(reason) {
+  try {
+    const result = await cleanupOldLogs();
+    log(`Cleanup ${reason}: deleted=${result.deleted} scanned=${result.scanned}`);
+  } catch (e) {
+    warn(`cleanup ${reason} failed: ${e.message}`);
+  }
+}
+
 async function main() {
   const identity = getNodeIdentity();
   const config = loadConfig();
@@ -137,13 +146,12 @@ async function main() {
   const reg = await startRegistration({ initialState: "booting" });
 
   // [YC cleanup] Xoá log cũ trong RTDB (events/handoff-log/nodes đã chết).
-  // Chạy 1 lần lúc start + định kỳ mỗi ORCH_CLEANUP_INTERVAL_SECONDS.
+  // Chạy ngay sau khi sidecar sẵn sàng + định kỳ mỗi ORCH_CLEANUP_INTERVAL_SECONDS.
   const retention = retentionDays();
   log(`Log retention: ${retention > 0 ? `${retention} ngày` : "tắt (ORCH_LOG_RETENTION_DAYS=0)"}`);
   if (retention > 0) {
-    cleanupOldLogs().catch((e) => warn(`cleanup at start failed: ${e.message}`));
     const cleanupTimer = setInterval(() => {
-      cleanupOldLogs().catch((e) => warn(`cleanup periodic failed: ${e.message}`));
+      runCleanup("periodic");
     }, cleanupIntervalMs());
     cleanupTimer.unref?.();
   }
@@ -158,6 +166,7 @@ async function main() {
     await reg.refreshTailscale();
     const leader = await getLeader();
     log(`Stack ready. Current RTDB leader: ${describeLeader(leader)}`);
+    if (retention > 0) await runCleanup("after stack ready");
     await logElectionSnapshot("stack-ready", { self: identity.nodeId });
   }
 

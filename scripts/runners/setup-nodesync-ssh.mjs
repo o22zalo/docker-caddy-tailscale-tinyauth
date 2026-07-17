@@ -10,7 +10,7 @@ const enabled=/^(1|true|yes|on)$/i.test(env.SSH_ENABLE||"0"),dry=process.argv.in
 const keyFile=resolve(runtime,"id_ed25519"),identityFile=resolve(runtime,"node-id"),manifestFile=resolve(runtime,"host-ssh.json"),nodeId=env.ORCH_NODE_ID||"local-unknown";
 const users=Object.keys(env).map(k=>k.match(/^SSH_(\d+)_USER$/)).filter(Boolean).sort((a,b)=>+a[1]-+b[1]).map(m=>env[m[0]]).filter(Boolean),sshUser=users[0];
 const safe=(x)=>String(x).replace(/(password|pass|secret|token|private[_-]?key)=\S+/gi,"$1=<hidden>");
-function run(cmd,args,opt={}){console.log(`[nodesync-ssh] ${safe(cmd+" "+args.join(" "))}`);if(dry)return"";return execFileSync(cmd,args,{encoding:"utf8",input:opt.input,stdio:opt.capture?["pipe","pipe","pipe"]:"inherit"}).trim()}
+function run(cmd,args,opt={}){console.log(`[nodesync-ssh] ${safe(cmd+" "+args.join(" "))}`);if(dry)return"";const out=execFileSync(cmd,args,{encoding:"utf8",input:opt.input,stdio:opt.capture?["pipe","pipe","pipe"]:"inherit"});return typeof out==="string"?out.trim():""}
 const sudo=(cmd,args,opt)=>process.getuid?.()===0?run(cmd,args,opt):run("sudo",["-n",cmd,...args],opt);
 if(!enabled){console.log("[nodesync-ssh] disabled");process.exit(0)}if(!sshUser)throw new Error("Run nodesync ssh:env before bootstrap");
 if(dry){console.log(`[nodesync-ssh] DRY RUN node=${nodeId} user=${sshUser}`);process.exit(0)}
