@@ -41,7 +41,13 @@ export async function startRegistration({ initialState = "booting" } = {}) {
 
   await nodeRef.set(base);
   // Khi mất kết nối (container chết / job hết giờ) → tự đánh dấu stopped.
-  await nodeRef.onDisconnect().update({
+  // LƯU Ý: onDisconnect chỉ nên tồn tại cho TIẾN TRÌNH HEARTBEAT CHÍNH.
+  // Các script one-shot (discover-predecessor chạy qua `run --rm orchestrator`)
+  // KHÔNG gọi startRegistration nên không đăng ký onDisconnect — an toàn.
+  // Ta giữ tham chiếu để có thể .cancel() khi node dừng CHỦ ĐỘNG (tránh
+  // onDisconnect firing trễ ghi đè "stopped" lên instance mới sau restart).
+  const disconnectHandler = nodeRef.onDisconnect();
+  await disconnectHandler.update({
     state: "stopped",
     stoppedAt: ServerValue.TIMESTAMP,
     stoppedAtVi: viTime(),
@@ -70,6 +76,11 @@ export async function startRegistration({ initialState = "booting" } = {}) {
     nodeRef,
     async setState(state, extra = {}) {
       if (!STATES.includes(state)) throw new Error(`invalid state: ${state}`);
+      // Khi dừng CHỦ ĐỘNG → huỷ onDisconnect để nó không firing trễ, ghi đè
+      // "stopped" lên một instance mới (sau restart) đang serving.
+      if (state === "stopped") {
+        try { await disconnectHandler.cancel(); } catch {}
+      }
       await nodeRef.update({ state, updatedAt: ServerValue.TIMESTAMP, updatedAtVi: viTime(), ...extra });
       await pushEvent("node.state", { nodeId: identity.nodeId, state });
       log(`Node ${identity.nodeId} → ${state}`);

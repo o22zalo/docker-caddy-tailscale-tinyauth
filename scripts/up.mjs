@@ -74,6 +74,7 @@ function getNodesyncConfig() {
     enabled: truthy(env.SSH_ENABLE),
     syncOnStart: String(env.SSH_SYNC_PATHS || (smoke ? "ci-runtime/smoke-sync-data" : "")).split(",").some(Boolean),
     tailscale: truthy(env.SSH_CHANNEL_TAILSCALE_ENABLE ?? "1"),
+    tailscaleSsh: truthy(env.SSH_TAILSCALE_SSH ?? "1"),
     orchestratorEnabled: truthy(env.CONSUL_ENABLE),
   };
 }
@@ -168,6 +169,25 @@ if (nodesync.enabled) {
   ensureProfile("nodesync");
   if (nodesync.tailscale) ensureProfile("tailscale");
 }
+// [YC] Hostname Tailscale DUY NHẤT theo runner (github/azure) — tránh 2 runner
+// cùng "proxy-stack" đè nhau chỉ còn 1 IP trên tailnet → rsync tailscale hỏng.
+function uniqueTsHostname(base = "proxy-stack") {
+  const gh = process.env.GITHUB_ACTIONS === "true";
+  const az = process.env.TF_BUILD === "True" || !!process.env.BUILD_BUILDID;
+  let suffix = "";
+  if (gh) suffix = `gh-${process.env.GITHUB_RUN_ID || ""}-${process.env.GITHUB_RUN_ATTEMPT || "1"}`;
+  else if (az) suffix = `az-${process.env.BUILD_BUILDID || ""}-${process.env.SYSTEM_JOBATTEMPT || "1"}`;
+  if (!suffix) return base;
+  return `${base}-${suffix}`.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 63);
+}
+if (nodesync.enabled && nodesync.tailscale) {
+  process.env.TS_HOSTNAME = uniqueTsHostname(envGet(ENV, "TS_HOSTNAME") || "proxy-stack");
+  const baseExtra = process.env.TS_EXTRA_ARGS || envGet(ENV, "TS_EXTRA_ARGS") || "--accept-dns=false";
+  if (nodesync.tailscaleSsh !== false && !/--ssh\b/.test(baseExtra)) {
+    process.env.TS_EXTRA_ARGS = `${baseExtra} --ssh`.trim();
+  }
+  log(`Tailscale identity: hostname=${process.env.TS_HOSTNAME} extraArgs="${process.env.TS_EXTRA_ARGS}"`);
+}
 process.env.DOCKER_VOLUME_RUNTIME_ABS = resolveVolumeRoot(envGet(ENV, "DOCKER_VOLUME_RUNTIME"), "ci-runtime");
 process.env.DOCKER_VOLUME_DATA_ABS = resolveVolumeRoot(envGet(ENV, "DOCKER_VOLUME_DATA"), "ci-data");
 
@@ -186,18 +206,40 @@ if (nodesync.enabled && nodesync.syncOnStart) {
   // 1) Bootstrap SSH server trên host runner (tạo/cài key, sshd, host key...).
   run(`node scripts/runners/setup-nodesync-ssh.mjs${DRY_RUN ? " --dry-run" : ""}`);
   // 2) Start transport + orchestrator + nodesync (orchestrator register lên RTDB).
+  //    KHÔNG start cloudflared ở đây: named tunnel multi-connector có thể route
+  //    ssh.<domain> về chính node mới trước khi rsync xong. cloudflared connect
+  //    ở bước "Start stack" phía dưới, SAU khi rsync xong.
   const services = ["orchestrator", "nodesync"];
   if (nodesync.tailscale) services.unshift("tailscale");
   run(compose(`up -d ${services.join(" ")}`));
   await waitNodesync();
+  // 2b) Tailscale transport. Nếu bật Tailscale SSH (--ssh) → không cần serve.
+  //     Nếu KHÔNG → fallback Serve TCP 2222 → sshd runner (userspace).
+  if (nodesync.tailscale && !DRY_RUN) {
+    let tsReady = false;
+    const deadline = Date.now() + 60_000;
+    while (Date.now() < deadline) {
+      try {
+        const out = execSync(dc("compose exec -T tailscale tailscale status --json"), { cwd: ROOT, encoding: "utf8" });
+        const st = JSON.parse(out);
+        if (st?.Self?.Online || st?.BackendState === "Running") { tsReady = true; break; }
+      } catch {}
+      await new Promise((done) => setTimeout(done, 2000));
+    }
+    if (!tsReady) log("WARN: Tailscale chưa sẵn sàng; sẽ fallback cloudflare/hybrid nếu bật.");
+    else if (nodesync.tailscaleSsh) log("Tailscale SSH transport ready: tailnet:22 (ACL-managed).");
+    else { run(dc("compose exec tailscale tailscale serve --bg --tcp=2222 tcp://host.docker.internal:22")); log("Tailscale Serve fallback: tailnet-ip:2222 → runner sshd:22."); }
+  }
   // 3) Chờ RTDB server timestamp ổn định rồi discover predecessor.
   if (!DRY_RUN) await new Promise((done) => setTimeout(done, 3000));
   log("Discovering nodesync predecessor...");
   run(compose(`run --rm --no-deps orchestrator node scripts/discover-predecessor.mjs --json > ci-runtime/nodesync/predecessor.json`));
   log("Nodesync predecessor manifest ready.");
   // 4) Sync configured paths từ predecessor (đọc predecessor.json ở bước 3).
+  //    sync.mjs ghi cờ ci-runtime/nodesync/sync-ok → orchestrator (sync-gate)
+  //    mới được giành leader. rsync XONG rồi mới tới lượt cloudflared connect.
   run(compose(`exec -T nodesync node scripts/sync.mjs${SILENT ? " --silent" : ""}`));
-  log("Nodesync pre-start hoàn tất.");
+  log("Nodesync pre-start hoàn tất (sync-ok đã ghi).");
 }
 
 if (mode === "ci") {

@@ -63,7 +63,7 @@ async function main() {
   }
   for (const e of entries) {
     const t = e.atVi || (e.at ? new Date(e.at).toISOString() : "(no-time)");
-    out(`\n  [${t}] reason=${e.reason || "handoff"} term=${e.term ?? "?"}`);
+    out(`\n  [${t}] reason=${e.reason || "handoff"} term=${e.term ?? "?"}${e.transition ? ` transition=${e.transition}` : ""}`);
     out(`    Leader cũ: ${fmtLeader(e.oldLeader)}`);
     out(`    Leader mới: ${fmtLeader(e.newLeader)}`);
     out(`    Việc leader cũ sẽ làm sau đó:`);

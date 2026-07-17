@@ -113,9 +113,17 @@ export async function pushEvent(type, data = {}) {
 //
 // Nếu oldLeader.nodeId === newLeader.nodeId thì KHÔNG ghi (không có thay đổi
 // thật sự) → tránh noise như cũ.
-function handoffLogKey({ oldId, newId, term }) {
-  const raw = `term-${term ?? "unknown"}-${oldId || "none"}-to-${newId || "none"}`;
-  return raw.replace(/[.#$/[\]]/g, "-");
+//
+// SANITIZE: RTDB cấm các ký tự  .  #  $  [  ]  /  trong KEY.
+// - Bản cũ dùng regex /[.#$/[\]]/ bị hỏng: dấu "/" nằm giữa character-class
+//   khiến regex ĐÓNG sớm → thực tế chỉ thay được . # $, còn / [ ] lọt qua.
+//   Khi key lọt "/" → RTDB hiểu là PHÂN CẤP PATH → record bị chôn vào nhánh
+//   con (không có field `at`) → handoff-log.mjs đọc limitToLast() KHÔNG thấy.
+//   Khi key lọt [ ] → .set() ném "Invalid key" và bị try/catch nuốt im lặng.
+// - Đây là NGUYÊN NHÂN gốc khiến /handoff/log rỗng.
+function sanitizeKey(raw) {
+  // Thay MỌI ký tự RTDB cấm (kể cả "/") + khoảng trắng bằng "-".
+  return String(raw).replace(/[.#$/\[\]\s]+/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 }
 
 export async function pushHandoffLog({ oldLeader, newLeader, oldLeaderNextActions = [], oldLeaderTasks = [], reason = "handoff", term }) {
@@ -139,14 +147,18 @@ export async function pushHandoffLog({ oldLeader, newLeader, oldLeaderNextAction
       oldLeaderTasks,
       reason,
       term: term ?? newLeader?.term ?? null,
+      // Khoá logic (để tra cứu / suy luận), KHÔNG dùng làm RTDB key.
+      transition: sanitizeKey(`term-${term ?? "unknown"}-${oldId || "none"}-to-${newId || "none"}`),
       at: ServerValue.TIMESTAMP,
       atVi: viTime(),
       nodeId: process.env.ORCH_NODE_ID || null,
     };
-    const key = handoffLogKey({ oldId, newId, term: entry.term });
-    await db.ref(`${paths.handoffLog}/${key}`).set(entry);
+    // DÙNG .push(): RTDB tự sinh push-key theo thời gian (an toàn tuyệt đối với
+    // mọi ký tự trong nodeId, không ghi đè, sắp đúng thứ tự cho limitToLast()).
+    const ref = await db.ref(paths.handoffLog).push(entry);
+    const key = ref.key;
     log(
-      `Handoff log ← leader đổi ${oldId || "(none)"} → ${newId || "(none)"} (reason=${reason}, term=${entry.term}, tasks=${oldLeaderTasks.length})`,
+      `Handoff log ← leader đổi ${oldId || "(none)"} → ${newId || "(none)"} (reason=${reason}, term=${entry.term}, tasks=${oldLeaderTasks.length}, key=${key})`,
     );
     return key;
   } catch (e) {

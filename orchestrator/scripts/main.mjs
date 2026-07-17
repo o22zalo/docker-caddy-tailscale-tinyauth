@@ -20,6 +20,7 @@ import { startRegistration } from "./register.mjs";
 import { tryAcquire, renewLeadership, releaseLeadership, getLeader, describeLeader } from "./elect.mjs";
 import { runHandoffPipeline, loadConfig } from "./hooks/index.mjs";
 import { isRunning } from "./lib/docker.mjs";
+import { existsSync, readFileSync } from "node:fs";
 import { log, warn, error } from "./lib/log.mjs";
 import { monitorLeaderWhoami } from "./lib/leader-whoami-monitor.mjs";
 import { cleanupOldLogs, cleanupIntervalMs, retentionDays } from "./lib/cleanup.mjs";
@@ -51,6 +52,63 @@ async function waitStackReady({ timeoutSec = 180 } = {}) {
   return false;
 }
 
+// [YC] "Runner sau lấy dữ liệu của leader về bằng rsync XONG mới giành leader."
+// nodesync/sync.mjs ghi cờ ci-runtime/nodesync/sync-ok (mount vào /workspace).
+// Orchestrator CHỈ được phép acquire leader khi cờ này = ok.
+//   - status "ok"      → sync xong (hoặc first-runner/no-path) → cho acquire.
+//   - status "failed"  → sync fail → KHÔNG acquire (chờ, để không cướp leader
+//                        khi chưa có dữ liệu).
+// Bật/tắt bằng ORCH_SYNC_GATE (mặc định: bật nếu SSH_SYNC_PATHS có giá trị).
+function syncGateEnabled() {
+  const explicit = process.env.ORCH_SYNC_GATE;
+  if (explicit !== undefined) {
+    const v = String(explicit).toLowerCase();
+    return v === "1" || v === "true" || v === "yes";
+  }
+  // Auto: bật khi nodesync có path để sync.
+  const paths = String(process.env.SSH_SYNC_PATHS || "").trim();
+  const smoke = String(process.env.SSH_SYNC_SMOKE_ENABLE || "0").toLowerCase();
+  return paths.length > 0 || smoke === "1" || smoke === "true" || smoke === "yes";
+}
+
+function readSyncGate() {
+  const repo = process.env.ORCH_REPO_DIR || process.env.SSH_WORKSPACE || "/workspace";
+  const file = `${repo.replace(/\/$/, "")}/ci-runtime/nodesync/sync-ok`;
+  try {
+    if (!existsSync(file)) return { present: false };
+    const raw = JSON.parse(readFileSync(file, "utf8"));
+    return { present: true, ...raw };
+  } catch (e) {
+    return { present: false, error: e.message };
+  }
+}
+
+// Đợi cờ sync-ok = "ok". Trả true nếu được phép acquire, false nếu hết giờ.
+async function waitSyncGate({ timeoutSec = 900 } = {}) {
+  if (!syncGateEnabled()) {
+    log("Sync gate: disabled (ORCH_SYNC_GATE off / no SSH_SYNC_PATHS) → acquire tự do.");
+    return true;
+  }
+  const deadline = Date.now() + timeoutSec * 1000;
+  let lastLog = 0;
+  while (Date.now() < deadline) {
+    const gate = readSyncGate();
+    if (gate.present && gate.status === "ok") {
+      log(`Sync gate: OK (${gate.detail || "n/a"}) → được phép giành leader.`);
+      return true;
+    }
+    if (gate.present && gate.status === "failed") {
+      warn(`Sync gate: FAILED (${gate.detail || "n/a"}) → CHƯA giành leader (chờ dữ liệu / retry sync).`);
+    } else if (Date.now() - lastLog > 15000) {
+      log("Sync gate: đang chờ rsync predecessor xong (chưa có cờ sync-ok)...");
+      lastLog = Date.now();
+    }
+    await sleep(3000);
+  }
+  warn(`Sync gate: hết giờ sau ${timeoutSec}s mà chưa "ok".`);
+  return false;
+}
+
 // Có standby nào khác đã "ready" và còn sống không? (để leader biết đã có ca sau)
 async function findFreshSuccessor({ selfId }) {
   const { db, paths } = connectRtdb();
@@ -60,7 +118,7 @@ async function findFreshSuccessor({ selfId }) {
   const now = Date.now();
   const candidates = Object.entries(nodes)
     .filter(([id, n]) => id !== selfId)
-    .filter(([, n]) => ["ready", "serving"].includes(n.state))
+    .filter(([, n]) => n.state === "ready")
     .filter(([, n]) => now - (n.heartbeat || 0) <= ttl)
     // ưu tiên node mới khởi động gần nhất
     .sort((a, b) => (b[1].startedAt || 0) - (a[1].startedAt || 0));
@@ -180,6 +238,14 @@ async function main() {
   const acquireInterval = num("ORCH_ACQUIRE_INTERVAL_SECONDS", config.acquire_interval_seconds || 5) * 1000;
   const renewInterval = num("ORCH_RENEW_INTERVAL_SECONDS", config.poll_interval_seconds || 10) * 1000;
 
+  // [YC] GATE: chỉ cho phép giành leader SAU khi rsync predecessor xong.
+  // Đợi một lần trước khi vào vòng election. Nếu gate fail/hết giờ → không
+  // acquire (node vẫn heartbeat/standby, có thể retry sync ở lớp ngoài).
+  let syncGateOk = await waitSyncGate({ timeoutSec: num("ORCH_SYNC_GATE_TIMEOUT_SECONDS", 900) });
+  if (!syncGateOk) {
+    warn("Sync gate chưa OK → node ở STANDBY, KHÔNG giành leader cho tới khi sync xong.");
+  }
+
   let isLeader = false;
   let term = 0;
   let handoffDone = false;
@@ -213,8 +279,17 @@ async function main() {
   // eslint-disable-next-line no-constant-condition
   while (true) {
     if (!isLeader) {
-      // Standby: cố giành ghế (chỉ giành khi chưa có leader / leader chết).
-      if (ready || isRunning(process.env.ORCH_READY_SERVICE || "cloudflared")) {
+      // Nếu gate chưa OK, thử refresh cờ mỗi vòng (sync có thể vừa xong).
+      if (!syncGateOk) {
+        const gate = readSyncGate();
+        if (gate.present && gate.status === "ok") {
+          syncGateOk = true;
+          log(`Sync gate: chuyển sang OK (${gate.detail || "n/a"}) → mở khoá election.`);
+        }
+      }
+      // Standby: cố giành ghế (chỉ giành khi chưa có leader / leader chết)
+      // VÀ sync gate đã OK (rsync predecessor xong).
+      if (syncGateOk && (ready || isRunning(process.env.ORCH_READY_SERVICE || "cloudflared"))) {
         const { acquired, term: t, blockedBy, ttlMs } = await tryAcquire({
           nodeId: identity.nodeId,
           host: identity.host,

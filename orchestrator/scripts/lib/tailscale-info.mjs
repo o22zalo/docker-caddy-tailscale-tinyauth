@@ -73,7 +73,7 @@ export function getTailscaleInfo() {
   const empty = {
     available: false, reason: null,
     ip: "", ips: [], hostname: "", dnsName: "",
-    os: "", version: "", tailnet: "", online: false, tags: [],
+    os: "", version: "", tailnet: "", online: false, tags: [], ssh: false,
   };
 
   // Bật/tắt thu thập (mặc định bật nếu profile có tailscale — nhưng best-effort).
@@ -107,6 +107,17 @@ export function getTailscaleInfo() {
     if (v.ok) version = v.out.split(/\r?\n/)[0] || "";
   }
 
+  // Node này có bật Tailscale SSH không?
+  //   - `tailscale up --ssh` → node xuất hiện SSH host keys + capability
+  //     "https://tailscale.com/cap/ssh". Dùng để nodesync quyết định có dùng
+  //     Tailscale SSH trực tiếp hay fallback serve+proxy.
+  //   Docs: https://tailscale.com/docs/features/tailscale-ssh
+  const caps = self.Capabilities || self.CapMap ? Object.keys(self.CapMap || {}).concat(self.Capabilities || []) : [];
+  const sshEnabled =
+    Array.isArray(self.sshHostKeys) && self.sshHostKeys.length > 0
+      ? true
+      : caps.some((c) => String(c).includes("cap/ssh"));
+
   return {
     available: true,
     reason: null,
@@ -119,5 +130,7 @@ export function getTailscaleInfo() {
     tailnet,
     online: !!self.Online,
     tags: self.Tags || [],
+    // SSH của Tailscale (để nodesync ưu tiên đường Tailscale SSH khi có).
+    ssh: sshEnabled,
   };
 }
