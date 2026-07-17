@@ -5,6 +5,7 @@ export function getHostSshInfo() {
   try {
     const x=JSON.parse(readFileSync(FILE,"utf8"));
     if (!x.nodeId || !x.user || !x.hostKey) throw new Error("thiếu nodeId/user/hostKey");
-    return { available:true, ...x, privateKey:undefined };
+    delete x.privateKey;
+    return { available:true, ...x };
   } catch(e) { return { available:false, reason:e.message }; }
 }
