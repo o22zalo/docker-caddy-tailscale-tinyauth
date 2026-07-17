@@ -6,12 +6,14 @@
 // ingress, creates DNS CNAME records. Writes results back to .env.
 //
 // Usage:
-//   node cloudflare/scripts/provision-tunnel.mjs [--env path] [--dry-run] [--silent]
+//   node cloudflare/scripts/provision-tunnel.mjs [--env path] [--delete-connections] [--dry-run] [--silent]
 //
 // Requires: npm install dotenv jsonc-parser
 //
 // Flags:
 //   --env path    Path to .env file (default: project root .env)
+//   --delete-connections
+//                 Delete all active cloudflared connectors for CF_TUNNEL_ID, then exit
 //   --dry-run     Show what would be done, no API calls or .env writes
 //   --silent      Skip confirmation prompt, run directly
 //
@@ -47,6 +49,7 @@ const API = "https://api.cloudflare.com/client/v4";
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
 const SILENT = args.includes("--silent");
+const DELETE_CONNECTIONS = args.includes("--delete-connections");
 const envIdx = args.indexOf("--env");
 const ENV_FILE = envIdx !== -1 ? resolve(args[envIdx + 1]) : resolve(ROOT, ".env");
 async function askConfirm(question) {
@@ -224,6 +227,44 @@ async function main() {
   const domain = env.DOMAIN || "(not set)";
   const authHeaders = getAuthHeaders(env);
   const authType = env.CF_API_TOKEN ? "API Token" : env.CF_API_EMAIL && getGlobalApiKey(env) ? "Global API Key" : "(not configured)";
+
+  if (DELETE_CONNECTIONS) {
+    if (!env.CF_ACCOUNT_ID) missing.push("CF_ACCOUNT_ID");
+    if (!env.CF_TUNNEL_ID) missing.push("CF_TUNNEL_ID");
+
+    console.log("─".repeat(60));
+    console.log(`Env file:        ${ENV_FILE}`);
+    console.log(`Auth:            ${authType}`);
+    console.log(`Account ID:      ${env.CF_ACCOUNT_ID || "(missing)"}`);
+    console.log(`Tunnel ID:       ${env.CF_TUNNEL_ID || "(missing)"}`);
+    console.log(`Action:          DELETE /accounts/{account_id}/cfd_tunnel/{tunnel_id}/connections`);
+    console.log("─".repeat(60));
+
+    if (DRY_RUN) {
+      console.log(`\nAPI calls that would be made:`);
+      console.log(`  DELETE /accounts/${env.CF_ACCOUNT_ID || "{account_id}"}/cfd_tunnel/${env.CF_TUNNEL_ID || "{tunnel_id}"}/connections`);
+      console.log(`\n[DRY RUN] No API calls performed.`);
+      return;
+    }
+
+    if (missing.length) {
+      console.error(`\nERROR: missing required vars in .env — cannot proceed: ${missing.join(", ")}`);
+      process.exit(1);
+    }
+
+    if (!SILENT) {
+      const ok = await askConfirm("\nDelete all active tunnel connectors?");
+      if (!ok) {
+        console.log("Aborted.");
+        return;
+      }
+    }
+
+    const res = await cf("DELETE", `/accounts/${env.CF_ACCOUNT_ID}/cfd_tunnel/${env.CF_TUNNEL_ID}/connections`, null, authHeaders);
+    showStep("Deleted tunnel connections", res);
+    if (!res.success) process.exit(1);
+    return;
+  }
 
   // Track what will be written / resolved
   const willWrite = []; // { key, value, reason }

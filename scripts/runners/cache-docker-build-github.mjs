@@ -83,11 +83,16 @@ function imageList() {
 }
 
 function run(cmd) {
+  if (!cmd) {
+    log("Docker unavailable — skipping image cache step.");
+    return false;
+  }
   if (DRY_RUN) {
     log(`[DRY RUN] ${cmd}`);
-    return;
+    return true;
   }
   execSync(cmd, { stdio: SILENT ? "ignore" : "inherit" });
+  return true;
 }
 
 const key = cacheKey();
@@ -117,8 +122,7 @@ if (action === "restore") {
   log(`Images to cache: ${images.join(", ")}`);
   if (existsSync(TAR_PATH) && statSync(TAR_PATH).size > 0) {
     log("Loading cached images...");
-    run(dockerCmd(`load -i ${TAR_PATH}`));
-    log("Cache loaded.");
+    if (run(dockerCmd(`load -i ${TAR_PATH}`))) log("Cache loaded.");
   } else {
     log("No cache found — images will be pulled fresh.");
   }

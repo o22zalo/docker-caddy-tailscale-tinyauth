@@ -25,6 +25,7 @@
     "pressh:nodesync": "npm run ssh:key-acl",
     "ssh:nodesync": "ssh -i .secret/nodesync_id_ed25519 -o IdentitiesOnly=yes -o PubkeyAuthentication=yes -o PasswordAuthentication=yes -o ProxyCommand=\"cloudflared access ssh --hostname ssh.dockercaddytailscaletinyauth.dpdns.org\" nodesync@ssh.dockercaddytailscaletinyauth.dpdns.org",
     "provision": "node cloudflare/scripts/provision-tunnel.mjs --env .env.dockercaddytailscaletinyauth",
+    "tunnel:delete-connections": "node cloudflare/scripts/provision-tunnel.mjs --env .env.dockercaddytailscaletinyauth --delete-connections",
     "ts-status": "node tailscale/scripts/status.mjs",
     "ts-init": "node tailscale/scripts/init.mjs --env .env.dockercaddytailscaletinyauth",
     "ts-init:dry": "node tailscale/scripts/init.mjs --env .env.dockercaddytailscaletinyauth --dry-run"
