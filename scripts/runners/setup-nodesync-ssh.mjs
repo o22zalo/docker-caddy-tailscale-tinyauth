@@ -3,7 +3,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname, networkInterfaces } from "node:os";
-import { resolve } from "node:path";
+import { dirname, parse, resolve } from "node:path";
 import { parseEnv } from "../lib/env-utils.mjs";
 const ROOT=resolve(import.meta.dirname,"../.."),ENV=resolve(ROOT,".env"),env={...(existsSync(ENV)?parseEnv(ENV):{}),...process.env};
 const enabled=/^(1|true|yes|on)$/i.test(env.SSH_ENABLE||"0"),dry=process.argv.includes("--dry-run"),runtime=resolve(ROOT,"ci-runtime/nodesync");
@@ -19,9 +19,8 @@ function grantSyncReads(){
  for(const raw of syncPaths){
   const rel=safeSyncPath(raw),target=resolve(ROOT,rel);
   if(!existsSync(target))continue;
-  sudo("chmod",["a+X",ROOT]);
-  const parts=rel.split(/[\\/]+/);let cur=ROOT;
-  for(const part of parts.slice(0,-1)){cur=resolve(cur,part);if(existsSync(cur))sudo("chmod",["a+X",cur])}
+  const root=parse(target).root;let cur=target;
+  while(cur&&cur!==root){cur=dirname(cur);if(existsSync(cur))sudo("chmod",["a+X",cur])}
   sudo("chmod",["-R","a+rX",target]);
  }
 }
