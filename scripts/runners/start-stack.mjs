@@ -78,7 +78,6 @@ function nodesyncConfig(envFile) {
     enabled: envTruthy(env.SSH_ENABLE),
     paths: String(env.SSH_SYNC_PATHS || (smoke ? "ci-runtime/smoke-sync-data" : "")).split(",").map((x) => x.trim()).filter(Boolean),
     tailscaleChannel: envTruthy(env.SSH_CHANNEL_TAILSCALE_ENABLE ?? "1"),
-    tailscaleSsh: envTruthy(env.SSH_TAILSCALE_SSH ?? "1"),
     cloudflareChannel: envTruthy(env.SSH_CHANNEL_CLOUDFLARE_ENABLE),
     hybridChannel: envTruthy(env.SSH_CHANNEL_HYBRID_ENABLE),
     orchestratorEnabled: envTruthy(env.CONSUL_ENABLE),
@@ -176,13 +175,12 @@ function uniqueTsHostname(base = "proxy-stack") {
 if (nodesync.enabled && nodesync.tailscaleChannel) {
   const tsHost = uniqueTsHostname(envGet(envFile, "TS_HOSTNAME") || "proxy-stack");
   process.env.TS_HOSTNAME = tsHost;
-  // Bật Tailscale SSH trên node này (nếu chưa bật) để runner sau dùng Tailscale
-  // SSH trực tiếp (không cần key/proxy tự chế). Userspace vẫn advertise cap ssh.
+  // Tailscale container owns only the userspace network/SOCKS5 transport.
+  // SSH identity, users and workspace live on the host runner, so do not enable
+  // Tailscale SSH here; Serve TCP forwards tailnet:2222 to host sshd:22.
   const baseExtra = process.env.TS_EXTRA_ARGS || envGet(envFile, "TS_EXTRA_ARGS") || "--accept-dns=false";
-  if (nodesync.tailscaleSsh !== false && !/--ssh\b/.test(baseExtra)) {
-    process.env.TS_EXTRA_ARGS = `${baseExtra} --ssh`.trim();
-  }
-  log(`Tailscale identity: hostname=${tsHost} extraArgs="${process.env.TS_EXTRA_ARGS}"`);
+  process.env.TS_EXTRA_ARGS = baseExtra.replace(/(?:^|\s)--ssh(?:=true)?(?=\s|$)/g, " ").replace(/\s+/g, " ").trim();
+  log(`Tailscale transport identity: hostname=${tsHost} extraArgs="${process.env.TS_EXTRA_ARGS}"`);
 }
 process.env.DOCKER_VOLUME_RUNTIME_ABS = resolveVolumeRoot(envGet(envFile, "DOCKER_VOLUME_RUNTIME"), "ci-runtime");
 process.env.DOCKER_VOLUME_DATA_ABS = resolveVolumeRoot(envGet(envFile, "DOCKER_VOLUME_DATA"), "ci-data");
@@ -220,14 +218,12 @@ if (nodesync.enabled) {
         const hasFallback = nodesync.cloudflareChannel || nodesync.hybridChannel;
         if (!hasFallback) throw new Error("Tailscale chưa sẵn sàng và không có channel fallback");
         err("WARN: Tailscale chưa sẵn sàng; thử Cloudflare/Hybrid fallback.");
-      } else if (nodesync.tailscaleSsh) {
-        // Tailscale SSH (tailscale up --ssh) tự chiếm port 22 trên tailnet →
-        // KHÔNG cần `tailscale serve --tcp=2222` nữa. Bỏ hẳn proxy tự chế.
-        log("Tailscale SSH transport ready: tailnet:22 (Tailscale-managed auth via ACL).");
       } else {
-        // Fallback (userspace, không bật Tailscale SSH): Serve TCP 2222 → sshd runner.
+        // This command runs on the host against the Tailscale sidecar. The
+        // resulting listener belongs to the tailnet node, while SSH terminates
+        // at host.docker.internal:22 where nodesync users/data actually live.
         run(dc("exec tailscale tailscale serve --bg --tcp=2222 tcp://host.docker.internal:22"));
-        log("Tailscale Serve transport ready: tailnet-ip:2222 → runner sshd:22 (fallback).");
+        log("Tailscale transport ready: tailnet:2222 → runner sshd:22 via userspace SOCKS5.");
       }
     }
     // Registration ghi node booting ngay; đợi ngắn để RTDB server timestamp ổn định.

@@ -13,6 +13,7 @@
     "ssh:users": "node scripts/setup-users.mjs",
     "ssh:smoke:prepare": "node scripts/smoke-data.mjs",
     "sync": "node scripts/sync.mjs",
+    "test": "node --test test/*.test.mjs",
     "verify": "node scripts/verify-integrity.mjs"
   },
   "dependencies": {

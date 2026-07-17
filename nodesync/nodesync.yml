@@ -1,5 +1,5 @@
-# nodesync client/controller sidecar. Không chạy sshd/Tailscale/cloudflared;
-# tái sử dụng transport hiện hữu và SSH server tự bootstrap trên CI runner.
+# nodesync client/controller sidecar. Không chạy sshd, Tailscale daemon hoặc
+# Cloudflare connector; dùng Tailscale SOCKS5 và cloudflared Access client local.
 services:
   nodesync:
     build:
@@ -19,7 +19,6 @@ services:
       SSH_RUNTIME_DIR: /runtime
     volumes:
       - ..:/workspace:rw
-      - /var/run/docker.sock:/var/run/docker.sock
       - ${DOCKER_VOLUME_RUNTIME_ABS:-../ci-runtime}/nodesync:/runtime:rw
     working_dir: /app
     healthcheck:

@@ -74,7 +74,6 @@ function getNodesyncConfig() {
     enabled: truthy(env.SSH_ENABLE),
     syncOnStart: String(env.SSH_SYNC_PATHS || (smoke ? "ci-runtime/smoke-sync-data" : "")).split(",").some(Boolean),
     tailscale: truthy(env.SSH_CHANNEL_TAILSCALE_ENABLE ?? "1"),
-    tailscaleSsh: truthy(env.SSH_TAILSCALE_SSH ?? "1"),
     orchestratorEnabled: truthy(env.CONSUL_ENABLE),
   };
 }
@@ -183,10 +182,8 @@ function uniqueTsHostname(base = "proxy-stack") {
 if (nodesync.enabled && nodesync.tailscale) {
   process.env.TS_HOSTNAME = uniqueTsHostname(envGet(ENV, "TS_HOSTNAME") || "proxy-stack");
   const baseExtra = process.env.TS_EXTRA_ARGS || envGet(ENV, "TS_EXTRA_ARGS") || "--accept-dns=false";
-  if (nodesync.tailscaleSsh !== false && !/--ssh\b/.test(baseExtra)) {
-    process.env.TS_EXTRA_ARGS = `${baseExtra} --ssh`.trim();
-  }
-  log(`Tailscale identity: hostname=${process.env.TS_HOSTNAME} extraArgs="${process.env.TS_EXTRA_ARGS}"`);
+  process.env.TS_EXTRA_ARGS = baseExtra.replace(/(?:^|\s)--ssh(?:=true)?(?=\s|$)/g, " ").replace(/\s+/g, " ").trim();
+  log(`Tailscale transport identity: hostname=${process.env.TS_HOSTNAME} extraArgs="${process.env.TS_EXTRA_ARGS}"`);
 }
 process.env.DOCKER_VOLUME_RUNTIME_ABS = resolveVolumeRoot(envGet(ENV, "DOCKER_VOLUME_RUNTIME"), "ci-runtime");
 process.env.DOCKER_VOLUME_DATA_ABS = resolveVolumeRoot(envGet(ENV, "DOCKER_VOLUME_DATA"), "ci-data");
@@ -213,8 +210,8 @@ if (nodesync.enabled && nodesync.syncOnStart) {
   if (nodesync.tailscale) services.unshift("tailscale");
   run(compose(`up -d ${services.join(" ")}`));
   await waitNodesync();
-  // 2b) Tailscale transport. Nếu bật Tailscale SSH (--ssh) → không cần serve.
-  //     Nếu KHÔNG → fallback Serve TCP 2222 → sshd runner (userspace).
+  // 2b) Tailscale userspace transport. Serve TCP 2222 forwards to the host
+  //     runner's sshd because users, identity files and workspace live there.
   if (nodesync.tailscale && !DRY_RUN) {
     let tsReady = false;
     const deadline = Date.now() + 60_000;
@@ -227,8 +224,10 @@ if (nodesync.enabled && nodesync.syncOnStart) {
       await new Promise((done) => setTimeout(done, 2000));
     }
     if (!tsReady) log("WARN: Tailscale chưa sẵn sàng; sẽ fallback cloudflare/hybrid nếu bật.");
-    else if (nodesync.tailscaleSsh) log("Tailscale SSH transport ready: tailnet:22 (ACL-managed).");
-    else { run(dc("compose exec tailscale tailscale serve --bg --tcp=2222 tcp://host.docker.internal:22")); log("Tailscale Serve fallback: tailnet-ip:2222 → runner sshd:22."); }
+    else {
+      run(dc("compose exec tailscale tailscale serve --bg --tcp=2222 tcp://host.docker.internal:22"));
+      log("Tailscale transport ready: tailnet:2222 → runner sshd:22 via userspace SOCKS5.");
+    }
   }
   // 3) Chờ RTDB server timestamp ổn định rồi discover predecessor.
   if (!DRY_RUN) await new Promise((done) => setTimeout(done, 3000));

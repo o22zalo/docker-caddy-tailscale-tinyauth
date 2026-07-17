@@ -2,35 +2,39 @@
 # nodesync/Dockerfile — SSH sync sidecar (đồng bộ dữ liệu giữa các node)
 # =============================================================================
 #
-# "Toàn quyền" trong flow đồng bộ:
+# Transport trong flow đồng bộ:
 #   - openssh-client + rsync: đồng bộ/execute tới sshd trên CI runner.
-#   - docker-cli + compose: chạy lệnh TRONG docker (compose exec) qua socket.
-#   - tailscale-cli: RESOLVE peer qua tailnet (status --json / ip) — đúng docs
-#     userspace + accept-dns=false (không dựa system DNS).
-#   - cloudflared: kênh dự phòng (cloudflared access ssh ProxyCommand).
+#   - netcat: chuyển TCP qua SOCKS5 của Tailscale sidecar.
+#   - cloudflared: Access client outbound; KHÔNG chạy connector local lúc sync.
 #   - node: chạy toàn bộ script .mjs điều phối.
 #
 # Base: Node 24 LTS trên Alpine 3.23 (Node 20 đã EOL 2026-04-30).
 # =============================================================================
 
+# Reuse the exact cloudflared version pinned by cloudflare/cloudflare.yml. This
+# binary is only an outbound Access client during predecessor sync; the local
+# connector service intentionally remains stopped until sync completes.
+FROM cloudflare/cloudflared:2026.7.1 AS cloudflared
+
 FROM node:24-alpine3.23
+
+COPY --from=cloudflared /usr/local/bin/cloudflared /usr/local/bin/cloudflared
 
 RUN apk add --no-cache \
       openssh-client-default \
       netcat-openbsd \
       rsync \
       rclone \
-      docker-cli \
-      docker-cli-compose \
       bash \
       coreutils \
       findutils \
       curl \
       tini \
+    && cloudflared --version \
     && rm -rf /var/cache/apk/*
 
-# Tailscale chạy ở sidecar riêng. Nodesync gọi CLI bằng `docker exec tailscale`
-# và chuyển SSH qua SOCKS5 `tailscale:1055`; không cài tailscale APK tại đây.
+# Tailscale chạy ở sidecar riêng. Nodesync chuyển mọi tailnet connection qua
+# SOCKS5 `tailscale:1055`; không gọi Docker host và không dựa system MagicDNS.
 
 WORKDIR /app
 

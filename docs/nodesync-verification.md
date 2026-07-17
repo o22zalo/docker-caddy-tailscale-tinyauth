@@ -45,8 +45,18 @@ node cloudflare/scripts/provision-tunnel.mjs --env .env --silent
 ```
 
 Không dùng Cloudflare Access service token. Tunnel token hiện tại chạy connector;
-client dùng `cloudflared access ssh --hostname ssh.<DOMAIN>` rồi SSH xác thực
-bằng user/password hoặc key.
+trong giai đoạn sync, connector của node mới chưa được start. Binary `cloudflared`
+trong container NodeSync chỉ chạy outbound
+`cloudflared access ssh --hostname ssh.<DOMAIN>` rồi SSH xác thực bằng
+user/password hoặc key.
+
+## Tailscale userspace
+
+Container NodeSync không có interface tailnet. Mọi endpoint Tailscale đều đi qua
+SOCKS5 của sidecar `tailscale:1055`: thử MagicDNS trước, sau đó fallback sang IP
+Tailscale do predecessor công bố. IP fallback vẫn thuộc channel Tailscale, không
+phải Hybrid. Sidecar Serve port 2222 forward tới host runner sshd port 22; không
+bật Tailscale SSH trong sidecar vì user, identity và workspace thuộc host.
 
 ## Smoke test ba channel
 

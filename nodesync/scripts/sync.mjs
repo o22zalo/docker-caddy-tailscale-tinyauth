@@ -6,6 +6,7 @@ import { dirname, relative, resolve, posix } from "node:path";
 import { spawn } from "node:child_process";
 import { loadConfig, enabledChannels, workspaceDir, truthy } from "./lib/env.mjs";
 import { log, warn, error } from "./lib/log.mjs";
+import { endpoints, isProxyBootstrapFailure } from "./lib/transports.mjs";
 const cfg=loadConfig(),ws=workspaceDir(),runtime=process.env.SSH_RUNTIME_DIR||"/runtime";
 const predecessorFile=`${runtime}/predecessor.json`,keyFile=`${runtime}/id_ed25519`,reports=resolve(ws,"ci-runtime/nodesync/reports"),smoke=truthy(process.env.SSH_SYNC_SMOKE_ENABLE);
 const authUser=process.env.SSH_1_USER||"",authPass=process.env.SSH_1_PASS||process.env.SSH_1_PASSWORD||"";
@@ -21,55 +22,6 @@ function sourceInfo(channel,source){
 }
 function exec(cmd,args,{timeout=30000,env={}}={}){return new Promise(resolveDone=>{const started=Date.now(),p=spawn(cmd,args,{stdio:["ignore","pipe","pipe"],env:{...process.env,...env}});let out="",err="",done=false;const finish=(result)=>{if(done)return;done=true;clearTimeout(timer);resolveDone({...result,out:out.trim(),err:err.trim(),durationMs:Date.now()-started})};p.stdout.on("data",d=>out+=d);p.stderr.on("data",d=>err+=d);p.on("error",e=>finish({ok:false,status:null,err:e.message}));p.on("close",code=>finish({ok:code===0,status:code}));const timer=setTimeout(()=>{p.kill("SIGKILL");finish({ok:false,status:null,err:`timeout ${timeout}ms`})},timeout)})}
 function ensureAuthFiles(){if(existsSync(keyFile)||!process.env.SSH_1_PRIVATE_KEY_BASE64)return;mkdirSync(dirname(keyFile),{recursive:true});writeFileSync(keyFile,Buffer.from(process.env.SSH_1_PRIVATE_KEY_BASE64,"base64").toString("utf8").trim()+"\n",{mode:0o600});chmodSync(keyFile,0o600);log(`materialized SSH private key from SSH_1_PRIVATE_KEY_BASE64 to ${keyFile}`)}
-// Chọn host tailnet của predecessor: ưu tiên MagicDNS (dnsName) để ổn định,
-// fallback tailnet IPv4. dnsName tránh phụ thuộc IP đổi.
-function tailscaleHost(source){
-  const ts=source.tailscale||{};
-  return ts.dnsName||ts.ip||(ts.ips||[]).find(x=>x.includes("."))||(ts.ips||[])[0]||"";
-}
-// Tailscale có bật SSH trên node predecessor không? (từ node record RTDB)
-// tailscale-info ghi `ssh:true` khi `tailscale up --ssh`. Nếu có → dùng
-// Tailscale SSH TRỰC TIẾP (Tailscale tự lo auth/authz qua ACL, KHÔNG cần key
-// materialize, KHÔNG cần nc/SOCKS proxy tự chế). Nếu không → fallback serve.
-function tailscaleSshEnabled(source){
-  const ts=source.tailscale||{};
-  return !!(ts.available&&ts.online&&ts.ssh===true);
-}
-function endpoints(source){
-  const map={tailscale:[],cloudflare:[],hybrid:[]};
-  // ── TAILSCALE ──────────────────────────────────────────────────────────
-  if(source.tailscale?.available&&source.tailscale?.online){
-    const host=tailscaleHost(source);
-    if(host){
-      if(tailscaleSshEnabled(source)){
-        // Tailscale SSH: kết nối THẲNG tới port 22 trên tailnet, Tailscale nhận
-        // diện & uỷ quyền. transport="ts-ssh" → dùng auth mode "ts" (không -i key,
-        // không ProxyCommand). Đây là đường ưu tiên (ít lỗi, không proxy tự chế).
-        map.tailscale.push({host,port:22,transport:"ts-ssh"});
-      }
-      // Fallback: userspace Tailscale Serve TCP 2222 → sshd runner, qua SOCKS5.
-      map.tailscale.push({host,port:source.ssh?.tailscalePort||2222,proxy:"nc -x tailscale:1055 %h %p",transport:"ts-serve"});
-    }
-  }
-  // ── CLOUDFLARE ─────────────────────────────────────────────────────────
-  if(source.domain)for(let attempt=1;attempt<=3;attempt++)map.cloudflare.push({host:`ssh.${source.domain}`,port:22,attempt,proxy:"docker exec -i cloudflared cloudflared access ssh --hostname %h"});
-  // ── HYBRID (direct IP, cùng L2/L3) ─────────────────────────────────────
-  // CHỈ nhận IP có khả năng route được. Loại: IPv6 link-local (fe80:),
-  // loopback, docker bridge/overlay (172.16–31.x, 10.x thường không cross-VM),
-  // và các dải ephemeral runner không route giữa node. Ưu tiên IPv4 public
-  // hoặc IP LAN thực (192.168.x). tailnet IP (100.64/10 CGNAT) đã đi kênh
-  // tailscale nên bỏ ở hybrid.
-  for(const host of source.ssh?.ips||[]){
-    if(!host||typeof host!=="string")continue;
-    if(/^fe80:/i.test(host))continue;                 // IPv6 link-local
-    if(/^(127\.|::1$|169\.254\.)/.test(host))continue; // loopback / APIPA
-    if(/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host))continue; // tailnet CGNAT 100.64/10
-    if(/^172\.(1[6-9]|2\d|3[01])\./.test(host))continue; // docker bridge/overlay
-    if(/^10\./.test(host)&&truthy(process.env.SSH_HYBRID_ALLOW_10,"0")===false)continue; // 10.x thường private per-VM
-    map.hybrid.push({host,port:source.ssh?.port||22});
-  }
-  return map;
-}
 function sshArgs(c,source,channel,auth="key"){
   const common=["-o","KbdInteractiveAuthentication=no","-o","StrictHostKeyChecking=no","-o",`ConnectTimeout=${cfg.ssh_connect_timeout_seconds||10}`,"-p",String(c.port),...(c.proxy?["-o",`ProxyCommand=${c.proxy}`]:[])];
   if(auth==="ts"){
@@ -79,10 +31,9 @@ function sshArgs(c,source,channel,auth="key"){
   }
   return["-o",`BatchMode=${auth==="key"?"yes":"no"}`,"-o",`PasswordAuthentication=${auth==="password"?"yes":"no"}`,"-o",`IdentitiesOnly=${auth==="key"?"yes":"no"}`,...(auth==="key"?["-i",keyFile]:[]),...common];
 }
-// authModes phụ thuộc endpoint: endpoint Tailscale-SSH (transport==="ts-ssh")
-// CHỈ dùng auth "ts" (Tailscale tự xác thực). Các endpoint khác dùng key/password.
+// All transports terminate at the host runner's sshd, so they use the same
+// key/password authentication. Tailscale supplies only the network path.
 function authModes(endpoint){
-  if(endpoint?.transport==="ts-ssh")return[{name:"ts",cmd:"ssh",prefix:[],env:{}}];
   const out=[];
   if(existsSync(keyFile))out.push({name:"key",cmd:"ssh",prefix:[],env:{}});
   if(authPass)out.push({name:"password",cmd:"sshpass",prefix:["-e","ssh"],env:{SSHPASS:authPass}});
@@ -94,7 +45,7 @@ function verifySmoke(root){const file=resolve(root,"manifest.json");if(!existsSy
 async function syncChannel(channel,source,selfId){
  const startedAt=new Date().toISOString(),begin=Date.now(),report={version:1,channel,source:source.nodeId,current:selfId,startedAt,status:"failed",sourceInfo:sourceInfo(channel,source),attempts:[],endpointMetadata:[]};
  try{
-  const list=endpoints(source)[channel]||[];report.endpointMetadata=list.map(c=>({host:c.host,port:c.port,attempt:c.attempt||1,proxy:c.proxy||"",transport:c.transport||""}));log(`channel=${channel} sourceInfo=${JSON.stringify(report.sourceInfo)} endpoints=${JSON.stringify(report.endpointMetadata)} paths=${cfg.sync_paths.join(",")}`);
+  const list=endpoints(source)[channel]||[];report.endpointMetadata=list.map(c=>({host:c.host,port:c.port,attempt:c.attempt||1,address:c.address||"",proxy:c.proxy||"",transport:c.transport||""}));log(`channel=${channel} sourceInfo=${JSON.stringify(report.sourceInfo)} endpoints=${JSON.stringify(report.endpointMetadata)} paths=${cfg.sync_paths.join(",")}`);
   if(!list.length)throw new Error(`no endpoint metadata sourceInfo=${JSON.stringify(report.sourceInfo)}`);
   outer:for(const c of list){
    const modes=authModes(c);
@@ -102,9 +53,14 @@ async function syncChannel(channel,source,selfId){
    for(const auth of modes){
    const args=sshArgs(c,source,channel,auth.name),target=`${authUser||source.ssh.user}@${c.host}`,probeArgs=[...auth.prefix,...args,target,`cat ${quote(source.ssh.identityFile)}`],probeCommand=cmdPreview(auth.cmd,probeArgs);log(`channel=${channel} probe start endpoint=${c.host}:${c.port} attempt=${c.attempt||1} auth=${auth.name} transport=${c.transport||"(direct)"} proxy=${c.proxy||"(none)"} command=${probeCommand}`);
    const probe=await exec(auth.cmd,probeArgs,{timeout:30000,env:auth.env}),verified=probe.ok&&probe.out.trim()===source.nodeId,reason=probeFailure(probe,source);
-   report.attempts.push({endpoint:`${c.host}:${c.port}`,attempt:c.attempt||1,auth:auth.name,transport:c.transport||"",proxy:c.proxy||"",command:probeCommand,verified,durationMs:probe.durationMs,status:probe.status,error:reason||undefined});
+   report.attempts.push({endpoint:`${c.host}:${c.port}`,attempt:c.attempt||1,auth:auth.name,transport:c.transport||"",address:c.address||"",proxy:c.proxy||"",command:probeCommand,verified,durationMs:probe.durationMs,status:probe.status,error:reason||undefined});
    log(`channel=${channel} probe done endpoint=${c.host}:${c.port} auth=${auth.name} ok=${probe.ok} verified=${verified} reason=${reason||"(none)"} durationMs=${probe.durationMs}`);
-   if(!verified)continue;
+   if(!verified){
+    // A missing/broken ProxyCommand is transport bootstrap failure, not an SSH
+    // authentication failure. Trying password after key cannot change it.
+    if(c.proxy&&isProxyBootstrapFailure(probe.err))break;
+    continue;
+   }
    report.endpoint=`${c.host}:${c.port}`;report.auth=auth.name;report.transport=c.transport||"";report.paths=[];
    for(const raw of cfg.sync_paths){
     const rel=safePath(raw),local=smoke?resolve(ws,"ci-runtime/smoke-sync-results",channel):resolve(ws,rel),remote=String(source.ssh.workspace||ws).replace(/\/$/,"");mkdirSync(local,{recursive:true});
@@ -132,10 +88,9 @@ async function main(){
  const{source,selfId}=JSON.parse(readFileSync(predecessorFile,"utf8"));
  if(!source){log(`runner=${selfId} first runner; smoke source data retained for successor`);writeGate("ok","first-runner");return}
  const channels=enabledChannels(cfg);
- // Tailscale-SSH KHÔNG cần key/password (Tailscale tự auth). Chỉ bắt buộc có
- // key/password khi KHÔNG có kênh nào dùng Tailscale-SSH.
- const tsSshPossible=channels.includes("tailscale")&&source.tailscale?.available&&source.tailscale?.online&&source.tailscale?.ssh===true;
- if(!existsSync(keyFile)&&!authPass&&!tsSshPossible)throw new Error("missing SSH key and password (and predecessor has no Tailscale SSH)");
+ // Every channel reaches the host runner's sshd and therefore needs the
+ // provisioned key or password, including Tailscale Serve over SOCKS5.
+ if(!existsSync(keyFile)&&!authPass)throw new Error("missing SSH key and password");
  let results;
  if(smoke)results=await Promise.all(channels.map(c=>syncChannel(c,source,selfId)));
  else{results=[];for(const c of channels){const r=await syncChannel(c,source,selfId);results.push(r);if(r.status==="passed")break}}
