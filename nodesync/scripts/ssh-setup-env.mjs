@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Materialise SSH_* configuration and runtime key files for local/GitHub/Azure.
 import { execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { dirname, resolve } from "node:path";
+import { Writable } from "node:stream";
+import readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "../../scripts/lib/env-utils.mjs";
 
@@ -14,6 +15,7 @@ const envArg=args.indexOf("--env");
 const ENV=envArg>=0?resolve(args[envArg+1]):resolve(ROOT,".env");
 const runtime=resolve(ROOT,"ci-runtime/nodesync");
 const truthy=(v)=>/^(1|true|yes|on)$/i.test(String(v??""));
+const interactive=process.stdin.isTTY&&!process.env.GITHUB_ACTIONS&&process.env.TF_BUILD!=="True"&&!dry&&!args.includes("--no-interactive");
 let content=existsSync(ENV)?readFileSync(ENV,"utf8"):"";
 const fileEnv=existsSync(ENV)?parseEnv(ENV):{}, env={...Object.fromEntries(Object.entries(fileEnv).map(([k,v])=>[k.toUpperCase(),v])),...Object.fromEntries(Object.entries(process.env).map(([k,v])=>[k.toUpperCase(),v]))};
 const generated=new Map();
@@ -49,6 +51,15 @@ function exportPublic(key,value){
  if(process.env.GITHUB_ENV)appendFileSync(process.env.GITHUB_ENV,`${key}=${value}\n`);
  if(process.env.TF_BUILD==="True")console.log(`##vso[task.setvariable variable=${key}]${value}`);
 }
+async function ask(question,{secret=false,required=false}={}){
+ while(true){
+  const muted=new Writable({write(chunk,enc,cb){if(!secret)process.stdout.write(chunk,enc);cb();}});
+  const rl=readline.createInterface({input:process.stdin,output:secret?muted:process.stdout,terminal:true});
+  const answer=(await rl.question(question)).trim();rl.close();if(secret)process.stdout.write("\n");
+  if(answer||!required)return answer;
+  console.error("Value is required.");
+ }
+}
 
 if(!truthy(env.SSH_ENABLE)){console.log("[ssh-env] SSH_ENABLE!=1; no SSH materialisation required");process.exit(0)}
 mkdirSync(runtime,{recursive:true});
@@ -56,13 +67,19 @@ const indexes=new Set();
 for(const key of Object.keys(env)){const m=key.match(/^SSH_(\d+)_(?:USER|PASS|PASSWORD|PUBLIC_KEY_BASE64|PRIVATE_KEY_BASE64)/i);if(m)indexes.add(Number(m[1]));}
 if(!indexes.size){
  set("SSH_1_USER",env.SSH_DEFAULT_USER||"nodesync");
- set("SSH_1_PASS",randomBytes(24).toString("base64url"),{secret:true});
  indexes.add(1);
 }
 for(const i of [...indexes].sort((a,b)=>a-b)){
- const user=env[`SSH_${i}_USER`]||env[`SSH_${i}_user`.toUpperCase()]||`nodesync${i===1?"":i}`;
- const pass=env[`SSH_${i}_PASS`]||env[`SSH_${i}_PASSWORD`]||randomBytes(24).toString("base64url");
+ const fallbackUser=env[`SSH_${i}_USER`]||env.SSH_DEFAULT_USER||`nodesync${i===1?"":i}`;
+ const user=interactive?(await ask(`SSH_${i}_USER [${fallbackUser}]: `)||fallbackUser):fallbackUser;
+ let pass=env[`SSH_${i}_PASS`]||env[`SSH_${i}_PASSWORD`]||"";
+ if(interactive)pass=await ask(`SSH_${i}_PASS (required): `,{secret:true,required:true});
+ if(!pass)throw new Error(`SSH_${i}_PASS is required${interactive?"":"; set it in env or run from an interactive terminal"}`);
  set(`SSH_${i}_USER`,user); set(`SSH_${i}_PASS`,pass,{secret:true});
+ if(interactive){
+  const pasted=await ask(`SSH_${i}_PUBLIC_KEY optional (blank = generated/current): `);
+  if(pasted)set(`SSH_${i}_PUBLIC_KEY_BASE64`,Buffer.from(pasted).toString("base64"));
+ }
 }
 const keyFile=resolve(runtime,"id_ed25519"), pubFile=`${keyFile}.pub`;
 let privateKey=env.SSH_1_PRIVATE_KEY_BASE64?Buffer.from(env.SSH_1_PRIVATE_KEY_BASE64,"base64").toString("utf8"):"";
