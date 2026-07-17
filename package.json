@@ -21,6 +21,7 @@
     "litestream:restore": "node litestream/scripts/restore.mjs",
     "rclone:pull": "node rclone/scripts/pull.mjs",
     "ssh:env": "node nodesync/scripts/ssh-setup-env.mjs --env .env.dockercaddytailscaletinyauth",
+    "ssh:nodesync": "ssh -i .secret/nodesync_id_ed25519 -o IdentitiesOnly=yes -o PubkeyAuthentication=yes -o PasswordAuthentication=yes -o ProxyCommand=\"cloudflared access ssh --hostname ssh.dockercaddytailscaletinyauth.dpdns.org\" nodesync@ssh.dockercaddytailscaletinyauth.dpdns.org",
     "provision": "node cloudflare/scripts/provision-tunnel.mjs --env .env.dockercaddytailscaletinyauth",
     "ts-status": "node tailscale/scripts/status.mjs",
     "ts-init": "node tailscale/scripts/init.mjs --env .env.dockercaddytailscaletinyauth",
