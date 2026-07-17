@@ -12,12 +12,26 @@ const users=Object.keys(env).map(k=>k.match(/^SSH_(\d+)_USER$/)).filter(Boolean)
 const safe=(x)=>String(x).replace(/(password|pass|secret|token|private[_-]?key)=\S+/gi,"$1=<hidden>");
 function run(cmd,args,opt={}){console.log(`[nodesync-ssh] ${safe(cmd+" "+args.join(" "))}`);if(dry)return"";const out=execFileSync(cmd,args,{encoding:"utf8",input:opt.input,stdio:opt.capture?["pipe","pipe","pipe"]:"inherit"});return typeof out==="string"?out.trim():""}
 const sudo=(cmd,args,opt)=>process.getuid?.()===0?run(cmd,args,opt):run("sudo",["-n",cmd,...args],opt);
+const truthy=(v)=>/^(1|true|yes|on)$/i.test(String(v??"0"));
+const syncPaths=String(env.SSH_SYNC_PATHS||(truthy(env.SSH_SYNC_SMOKE_ENABLE)?"ci-runtime/smoke-sync-data":"")).split(",").map(x=>x.trim()).filter(Boolean);
+function safeSyncPath(p){if(!p||p.startsWith("/")||p.split(/[\\/]+/).includes("..")||p==="."||p==="ci-runtime")throw new Error(`unsafe sync path: ${p}`);return p}
+function grantSyncReads(){
+ for(const raw of syncPaths){
+  const rel=safeSyncPath(raw),target=resolve(ROOT,rel);
+  if(!existsSync(target))continue;
+  sudo("chmod",["a+X",ROOT]);
+  const parts=rel.split(/[\\/]+/);let cur=ROOT;
+  for(const part of parts.slice(0,-1)){cur=resolve(cur,part);if(existsSync(cur))sudo("chmod",["a+X",cur])}
+  sudo("chmod",["-R","a+rX",target]);
+ }
+}
 if(!enabled){console.log("[nodesync-ssh] disabled");process.exit(0)}if(!sshUser)throw new Error("Run nodesync ssh:env before bootstrap");
 if(dry){console.log(`[nodesync-ssh] DRY RUN node=${nodeId} user=${sshUser}`);process.exit(0)}
 mkdirSync(runtime,{recursive:true});if(!existsSync(keyFile))throw new Error(`missing ${keyFile}; run ssh:env`);chmodSync(keyFile,0o600);writeFileSync(identityFile,nodeId+"\n",{mode:0o644});
 if(process.platform!=="linux")throw new Error("sshd bootstrap requires Linux");
 const install=spawnSync("sh",["-lc","command -v sshd >/dev/null && command -v rsync >/dev/null && command -v sshpass >/dev/null || (sudo -n apt-get update -qq && sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openssh-server rsync sshpass)"]);if(install.status!==0)throw new Error("non-interactive SSH dependencies install failed");
 sudo("mkdir",["-p","/run/sshd","/etc/ssh/sshd_config.d","/etc/nodesync"]);sudo("install",["-m","0644",identityFile,"/etc/nodesync/node-id"]);
+grantSyncReads();
 const dropin=["PasswordAuthentication yes","KbdInteractiveAuthentication no","PubkeyAuthentication yes","PermitRootLogin no","UsePAM yes","AllowTcpForwarding no","X11Forwarding no","PermitTTY yes",`AllowUsers ${users.join(" ")}`].join("\n")+"\n";
 const tmp=resolve(runtime,"99-nodesync.conf");writeFileSync(tmp,dropin);sudo("install",["-m","0644",tmp,"/etc/ssh/sshd_config.d/99-nodesync.conf"]);sudo("ssh-keygen",["-A"]);sudo("sshd",["-t"]);
 if(spawnSync("sh",["-lc","command -v systemctl >/dev/null && systemctl list-unit-files ssh.service >/dev/null 2>&1"]).status===0)sudo("systemctl",["restart","ssh"]);else sudo("sh",["-lc","pkill -HUP sshd || /usr/sbin/sshd"]);
