@@ -6,12 +6,9 @@ export const PREDECESSOR_FILE = "/workspace/ci-runtime/nodesync/predecessor.json
 export function predecessorCandidates(nodes, selfId, now=Date.now(), ttl=90000) {
   const self=nodes[selfId]; if(!self) return null;
   return Object.entries(nodes)
-    .map(([id,n])=>({id,node:n,ageMs:now-(n.heartbeat||0),beforeSelf:(n.startedAt||0)<(self.startedAt||Infinity),stateOk:["ready","serving","draining"].includes(n.state),sshOk:!!n.ssh?.available,sshNodeOk:!n.ssh?.nodeId||n.ssh.nodeId===id}))
+    .map(([id,n])=>({id,node:n,ageMs:now-(n.heartbeat||0),gapMs:(self.startedAt||Infinity)-(n.startedAt||0),beforeSelf:(n.startedAt||0)<(self.startedAt||Infinity),stateOk:["ready","serving","draining"].includes(n.state),sshOk:!!n.ssh?.available,sshNodeOk:!n.ssh?.nodeId||n.ssh.nodeId===id}))
     .filter((x)=>x.id!==selfId && x.beforeSelf && x.stateOk && x.ageMs<=ttl && x.sshOk && x.sshNodeOk)
-    .sort((a,b)=>{
-      const leaderBias=(x)=>x.node.state==="serving"?1:0;
-      return leaderBias(b)-leaderBias(a) || (b.node.startedAt||0)-(a.node.startedAt||0);
-    });
+    .sort((a,b)=>(b.node.startedAt||0)-(a.node.startedAt||0));
 }
 export function selectPredecessor(nodes, selfId, now=Date.now(), ttl=90000) {
   const candidates=predecessorCandidates(nodes,selfId,now,ttl);
@@ -31,7 +28,7 @@ async function main(){
   const nodes=(await db.ref(paths.nodes).get()).val()||{};
   const ttl=heartbeatTtlMs(), now=Date.now(), candidates=predecessorCandidates(nodes,self,now,ttl)||[];
   const source=candidates.length ? { nodeId:candidates[0].id, ...candidates[0].node } : null;
-  const output={version:1,selfId:self,source,discoveredAt:new Date().toISOString(),ttlMs:ttl,candidates:candidates.map(({id,node,ageMs})=>({id,state:node.state,ageMs,startedAt:node.startedAt,sshNodeId:node.ssh?.nodeId||"",tailscaleIp:node.tailscale?.ip||"",domain:node.domain||""}))};
+  const output={version:1,selfId:self,source,discoveredAt:new Date().toISOString(),ttlMs:ttl,candidates:candidates.map(({id,node,ageMs,gapMs})=>({id,state:node.state,ageMs,gapMs,startedAt:node.startedAt,sshNodeId:node.ssh?.nodeId||"",tailscaleIp:node.tailscale?.ip||"",domain:node.domain||""}))};
   if(json){process.stdout.write(JSON.stringify(output,null,2)+"\n");process.exit(0)}
   console.error(source?`[nodesync-discovery] source=${source.nodeId} startedAt=${source.startedAt}`:"[nodesync-discovery] no predecessor; first runner skips sync");
 }
