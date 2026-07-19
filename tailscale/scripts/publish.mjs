@@ -49,6 +49,22 @@ const warn = (...a) => { if (!SILENT) console.warn(...a); };
 
 const TAILSCALE_API = "https://api.tailscale.com/api/v2";
 
+/** Ghi hoặc cập nhật 1 biến trong .env file. Không throw. */
+function writeEnvVar(file, key, value) {
+  if (DRY_RUN) { log(`[DRY RUN] writeEnv ${key}=${value}`); return; }
+  try {
+    let content = existsSync(file) ? readFileSync(file, "utf8") : "";
+    const lines = content ? content.split(/\n/) : [];
+    const line = `${key}=${value}`;
+    const idx = lines.findIndex((l) => l.startsWith(`${key}=`));
+    if (idx >= 0) lines[idx] = line;
+    else lines.push(line);
+    writeFileSync(file, `${lines.join("\n").replace(/\n*$/, "")}\n`, "utf8");
+  } catch (e) {
+    warn(`WARN: không ghi được ${key} vào ${file}: ${e.message}`);
+  }
+}
+
 async function getOAuthToken(env) {
   const clientId = (env.TS_CLIENT_ID || "").trim();
   const clientSecret = (env.TS_CLIENT_SECRET || "").trim();
@@ -232,6 +248,8 @@ async function main() {
       if (realHost && realHost !== cfg.nodeHost) {
         log(`[hostname] Auto-detect: "${cfg.nodeHost}" → "${realHost}" (sửa serve.json host key)`);
         cfg.nodeHost = realHost;
+        // Ghi hostname thật về .env để lần sau không cần detect lại
+        writeEnvVar(ENV_FILE, "TS_HOSTNAME", realHost);
       }
     }
   }

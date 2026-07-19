@@ -166,7 +166,7 @@ async function main() {
 
   const envWrites = [];
   if (!fileEnv.TS_TAILNET && process.env.TS_TAILNET) envWrites.push(["TS_TAILNET", tailnet]);
-  if (!fileEnv.TS_HOSTNAME) envWrites.push(["TS_HOSTNAME", detectedHostname]);
+  if (detectedHostname && detectedHostname !== fileEnv.TS_HOSTNAME) envWrites.push(["TS_HOSTNAME", detectedHostname]);
   if (!fileEnv.TS_SERVE_CONFIG) envWrites.push(["TS_SERVE_CONFIG", "/config/serve.json"]);
   const extra = env.TS_EXTRA_ARGS || "--accept-dns=false";
   const advertise = `--advertise-tags=${tags.join(",")}`;
