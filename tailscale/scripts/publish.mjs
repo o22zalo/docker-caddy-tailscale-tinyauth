@@ -28,6 +28,9 @@ import { detectDocker } from "../../scripts/runners/_docker.mjs";
 import {
   buildAdvertiseCommands,
   buildServeConfig,
+  buildServiceApprovalBody,
+  buildVipServiceBody,
+  extractHostname,
   resolvePublishConfig,
   SSH_FORWARD_PORT,
 } from "./lib/publish-lib.mjs";
@@ -43,6 +46,34 @@ const envIdx = args.indexOf("--env");
 const ENV_FILE = envIdx !== -1 ? resolve(args[envIdx + 1]) : resolve(ROOT, ".env");
 const log = (...a) => { if (!SILENT) console.log(...a); };
 const warn = (...a) => { if (!SILENT) console.warn(...a); };
+
+const TAILSCALE_API = "https://api.tailscale.com/api/v2";
+
+async function getOAuthToken(env) {
+  const clientId = (env.TS_CLIENT_ID || "").trim();
+  const clientSecret = (env.TS_CLIENT_SECRET || "").trim();
+  if (!clientId || !clientSecret) return null;
+  try {
+    const body = new URLSearchParams({ grant_type: "client_credentials", client_id: clientId, client_secret: clientSecret });
+    const res = await fetch(`${TAILSCALE_API}/oauth/token`, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.access_token) return null;
+    return json.access_token;
+  } catch { return null; }
+}
+
+async function tsApi(method, path, token, body) {
+  const res = await fetch(`${TAILSCALE_API}${path}`, {
+    method,
+    headers: { Accept: "application/json", Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return { ok: res.ok, status: res.status, json: await res.json().catch(() => ({})) };
+}
 
 function loadServices() {
   const defaults = [{ name: "whoami", upstream: "http://whoami:80" }];
@@ -113,7 +144,9 @@ function applyServe(services, cfg) {
 }
 
 // ── Cách B: advertise từng svc: qua CLI. KHÔNG đụng 2222.
-function applyServices(services, cfg) {
+// Trước advertise: tạo VIP service trên control plane (idempotent).
+// Sau advertise: approve host qua API để tránh "pending approval".
+async function applyServices(services, cfg) {
   const cmds = buildAdvertiseCommands(services, cfg);
   if (!cmds.length) { log("[services] không có service để advertise."); return; }
   const online = waitTailscaleOnline();
@@ -121,6 +154,30 @@ function applyServices(services, cfg) {
     warn("[services] Tailscale chưa online sau 60s — bỏ qua advertise (stack/sync không bị ảnh hưởng).");
     return;
   }
+
+  // ── Step 1: Create VIP services on control plane ──
+  const token = await getOAuthToken(ENV);
+  const tailnet = cfg.tailnet || ENV.TS_TAILNET || "";
+  const encodedTailnet = encodeURIComponent(tailnet);
+  let nodeId = "";
+  if (token && tailnet) {
+    const st = dockerExec("compose exec -T tailscale tailscale status --json", { capture: true });
+    if (st.ok && st.out) {
+      try { nodeId = JSON.parse(st.out)?.Self?.ID || ""; } catch {}
+    }
+    log(`[services] Tạo VIP services trên control plane...`);
+    for (const cmd of cmds) {
+      if (DRY_RUN) { log(`[services] [DRY RUN] PUT /vip-services/${cmd.service}`); continue; }
+      const body = buildVipServiceBody(cmd.service);
+      const r = await tsApi("PUT", `/tailnet/${encodedTailnet}/vip-services/${cmd.service}`, token, body);
+      if (r.ok) log(`[services] ${cmd.service} created/existed (VIP: ${r.json.addrs?.[0] || "?"})`);
+      else warn(`[services] ${cmd.service} create failed: HTTP ${r.status} ${r.json.message || ""}`);
+    }
+  } else {
+    warn("[services] Không có OAuth token — bỏ qua VIP service creation (cần chạy ts-init trước).");
+  }
+
+  // ── Step 2: Advertise via CLI ──
   let okCount = 0;
   for (const cmd of cmds) {
     const sub = `compose exec -T tailscale tailscale ${cmd.argv.join(" ")}`;
@@ -128,21 +185,32 @@ function applyServices(services, cfg) {
     if (r.ok) {
       okCount += 1;
       const pending = /approval from an admin is required/i.test(r.out);
-      log(`[services] advertised ${cmd.service} → ${cmd.upstream}${pending ? " (⏳ chờ auto-approve từ ACL)" : " ✓"}`);
+      log(`[services] advertised ${cmd.service} → ${cmd.upstream}${pending ? " (⏳ chờ approve)" : " ✓"}`);
     } else {
       warn(`[services] advertise ${cmd.service} thất bại: ${r.out.split("\n")[0]}`);
     }
   }
   log(`[services] advertise xong: ${okCount}/${cmds.length}. DNS: https://<name>.${cfg.tailnet || "<tailnet>"}/`);
-  if (cfg.autoApprove) {
-    log("[services] autoApprovers.services đã (hoặc sẽ) được init.mjs ghi vào ACL — chạy `npm run ts-init` nếu chưa.");
+
+  // ── Step 3: Approve hosts via API ──
+  if (token && tailnet && nodeId && cfg.autoApprove) {
+    log(`[services] Approving hosts via API...`);
+    for (const cmd of cmds) {
+      if (DRY_RUN) { log(`[services] [DRY RUN] POST approve ${cmd.service} node=${nodeId}`); continue; }
+      const body = buildServiceApprovalBody();
+      const r = await tsApi("POST", `/tailnet/${encodedTailnet}/services/${cmd.service}/device/${nodeId}/approved`, token, body);
+      if (r.ok) log(`[services] ${cmd.service} host approved ✓`);
+      else warn(`[services] ${cmd.service} approve failed: HTTP ${r.status} ${r.json.message || ""}`);
+    }
+  } else if (cfg.autoApprove) {
+    warn("[services] Không thể auto-approve (thiếu token/tailnet/nodeId). Chạy `npm run ts-init` rồi `npm run ts-publish` lại.");
   } else {
     warn("[services] TS_SERVICES_AUTOAPPROVE=0 → service có thể kẹt 'pending approval'; duyệt thủ công trong admin console.");
   }
 }
 
 let ENV = {};
-function main() {
+async function main() {
   ENV = { ...parseEnv(ENV_FILE), ...process.env };
   const cfg = resolvePublishConfig(ENV);
   for (const w of cfg.warnings) warn(`WARN: ${w}`);
@@ -156,14 +224,26 @@ function main() {
   const services = loadServices();
   log(`Services: ${services.map((s) => s.name).join(", ")}`);
 
+  // ── Auto-detect hostname nếu chưa set hoặc đang dùng default sai ──
+  if (cfg.doServe && cfg.serveStyle === "path") {
+    const statusOut = dockerExec("compose exec -T tailscale tailscale status --json", { capture: true });
+    if (statusOut.ok && statusOut.out) {
+      const realHost = extractHostname(statusOut.out);
+      if (realHost && realHost !== cfg.nodeHost) {
+        log(`[hostname] Auto-detect: "${cfg.nodeHost}" → "${realHost}" (sửa serve.json host key)`);
+        cfg.nodeHost = realHost;
+      }
+    }
+  }
+
   if (cfg.doServe) applyServe(services, cfg);
-  if (cfg.doServices) applyServices(services, cfg);
+  if (cfg.doServices) await applyServices(services, cfg);
 
   log("Publish hoàn tất.");
 }
 
 try {
-  main();
+  await main();
 } catch (e) {
   // Bất biến: publish KHÔNG được làm gãy stack. Log rồi thoát 0.
   warn(`WARN: publish gặp lỗi nhưng bỏ qua để không ảnh hưởng stack/sync: ${e.message}`);

@@ -135,6 +135,34 @@ export function buildAdvertiseCommands(services, cfg) {
 }
 
 /**
+ * Cách B — build body cho PUT /vip-services/svc:<name> (Tailscale API).
+ * Tạo VIP service trên control plane. idempotent — PUT 200 nếu đã tồn tại.
+ *ports: ["do-not-validate"] vì Caddy/Tailscale terminate TLS bên ngoài.
+ */
+export function buildVipServiceBody(serviceName) {
+  return { name: serviceName, ports: ["do-not-validate"] };
+}
+
+/**
+ * Cách B — build path + body cho POST approve host.
+ * Dùng sau khi advertise để approve node cho service, tránh "pending approval".
+ */
+export function buildServiceApprovalBody() {
+  return { approved: true };
+}
+
+/**
+ * Extract hostname từ tailscale status --json output.
+ * Trả "" nếu không parse được (caller fallback về TS_HOSTNAME).
+ */
+export function extractHostname(statusJson) {
+  try {
+    const st = typeof statusJson === "string" ? JSON.parse(statusJson) : statusJson;
+    return st?.Self?.HostName || "";
+  } catch { return ""; }
+}
+
+/**
  * Cách B — merge autoApprovers.services vào ACL policy (immutably).
  * approvers mặc định = các tag host (vd tag:container) để node tự duyệt.
  * KHÔNG đụng grants/ssh/tagOwners. No-op khi !doServices hoặc !autoApprove.

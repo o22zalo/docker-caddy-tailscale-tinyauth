@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 import { parse } from "jsonc-parser";
 import { parseEnv } from "../../scripts/lib/env-utils.mjs";
-import { buildServeConfig, mergeServiceAutoApprovers, resolvePublishConfig } from "./lib/publish-lib.mjs";
+import { buildServeConfig, extractHostname, mergeServiceAutoApprovers, resolvePublishConfig } from "./lib/publish-lib.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
@@ -166,7 +166,7 @@ async function main() {
 
   const envWrites = [];
   if (!fileEnv.TS_TAILNET && process.env.TS_TAILNET) envWrites.push(["TS_TAILNET", tailnet]);
-  if (!fileEnv.TS_HOSTNAME) envWrites.push(["TS_HOSTNAME", "proxy-stack"]);
+  if (!fileEnv.TS_HOSTNAME) envWrites.push(["TS_HOSTNAME", detectedHostname]);
   if (!fileEnv.TS_SERVE_CONFIG) envWrites.push(["TS_SERVE_CONFIG", "/config/serve.json"]);
   const extra = env.TS_EXTRA_ARGS || "--accept-dns=false";
   const advertise = `--advertise-tags=${tags.join(",")}`;
@@ -219,6 +219,29 @@ async function main() {
 
   const accessToken = await token(clientId, clientSecret);
   const encodedTailnet = encodeURIComponent(tailnet);
+
+  // ── Auto-detect hostname từ Tailscale API (list devices) ──
+  // Publish.mjs cũng tự detect khi chạy sau docker compose up, nhưng ở đây
+  // ta detect sớm hơn để serve.json render đúng hostname ngay từ lần đầu.
+  let detectedHostname = publishCfg.nodeHost;
+  try {
+    const devicesRes = await ts("GET", `/tailnet/${encodedTailnet}/devices`, accessToken);
+    const devices = devicesRes.json?.devices || [];
+    // Tìm device có tag trùng với tag đầu tiên trong danh sách (vd tag:container)
+    const matchTag = tags[0];
+    const selfDevice = devices.find((d) =>
+      Array.isArray(d?.tags) && d.tags.includes(matchTag) && d?.hostname
+    );
+    if (selfDevice?.hostname) {
+      detectedHostname = selfDevice.hostname;
+      if (detectedHostname !== publishCfg.nodeHost) {
+        log(`\nAuto-detected hostname: "${publishCfg.nodeHost}" → "${detectedHostname}"`);
+        publishCfg.nodeHost = detectedHostname;
+      }
+    }
+  } catch {
+    // API có thể fail nếu chưa có device nào — không fatal.
+  }
 
   if (aclChanged) {
     mkdirSync(dirname(aclPath), { recursive: true });
