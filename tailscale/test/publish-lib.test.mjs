@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import {
   buildAdvertiseCommands,
   buildServeConfig,
+  buildServiceApprovalBody,
+  buildVipServiceBody,
+  extractHostname,
   mergeServiceAutoApprovers,
   resolvePublishConfig,
   serviceNames,
@@ -143,4 +146,30 @@ test("autoApprovers idempotent — chạy 2 lần không nhân đôi approvers",
 test("serviceNames gộp name + aliases, lọc trùng", () => {
   assert.deepEqual(serviceNames({ name: "webssh", names: ["ttyd", "webssh"] }), ["webssh", "ttyd"]);
   assert.deepEqual(serviceNames({ name: "whoami" }), ["whoami"]);
+});
+
+// ── VIP service + approval helpers ───────────────────────────────────────────
+test("buildVipServiceBody returns correct body with do-not-validate", () => {
+  const body = buildVipServiceBody("svc:whoami");
+  assert.deepEqual(body, { name: "svc:whoami", ports: ["do-not-validate"] });
+});
+
+test("buildServiceApprovalBody returns { approved: true }", () => {
+  assert.deepEqual(buildServiceApprovalBody(), { approved: true });
+});
+
+// ── extractHostname ──────────────────────────────────────────────────────────
+test("extractHostname parses HostName from tailscale status JSON", () => {
+  const json = JSON.stringify({
+    Self: { HostName: "proxy-stack-gh-123", Online: true },
+    BackendState: "Running",
+  });
+  assert.equal(extractHostname(json), "proxy-stack-gh-123");
+});
+
+test("extractHostname returns empty string for invalid/missing input", () => {
+  assert.equal(extractHostname(""), "");
+  assert.equal(extractHostname("not json"), "");
+  assert.equal(extractHostname(JSON.stringify({ Self: {} })), "");
+  assert.equal(extractHostname(null), "");
 });

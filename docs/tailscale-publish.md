@@ -9,6 +9,7 @@ môi trường prefix `TS_`.
 > - Muốn DNS name **thật** (vd `https://whoami.tailaa8079.ts.net/` resolve được) → dùng **Cách B** (`services`).
 > - Cách A (`serve`) chỉ proxy nội bộ, **không** tạo MagicDNS record riêng cho subdomain.
 > - **SSH sync (TCP 2222) không bao giờ bị đụng** trong bất kỳ mode nào.
+> - **Hostname tự detect**: không cần set `TS_HOSTNAME` thủ công — script tự lấy từ Tailscale API.
 
 ---
 
@@ -83,7 +84,9 @@ TS_SERVICES_AUTOAPPROVE=1
 ```
                         ┌──────────────────────────┐
    npm run ts-init  ──▶ │ tailscale/scripts/init.mjs│
-   (1 lần / khi đổi ACL)│  • render serve.json      │──▶ tailscale/serve.json
+   (1 lần / khi đổi ACL)│  • auto-detect hostname   │
+                        │    từ Tailscale API       │
+                        │  • render serve.json      │──▶ tailscale/serve.json
                         │    (theo mode + style)    │
                         │  • merge autoApprovers    │──▶ tailscale/acl.hujson
                         │  • POST ACL, bật HTTPS     │──▶ Tailscale API
@@ -95,8 +98,12 @@ TS_SERVICES_AUTOAPPROVE=1
                           ▼
                         ┌──────────────────────────────┐
                         │ tailscale/scripts/publish.mjs │
+                        │  • auto-detect hostname       │
                         │  • Cách A: ghi/nạp serve.json  │
-                        │  • Cách B: serve --service=svc:│──▶ advertise từng svc:
+                        │  • Cách B:                    │
+                        │    1. PUT /vip-services/svc:*  │──▶ tạo VIP services
+                        │    2. serve --service=svc:*    │──▶ advertise
+                        │    3. POST approve host       │──▶ approve node
                         │  • phòng thủ: lỗi KHÔNG gãy stack
                         └──────────────────────────────┘
 ```
@@ -159,8 +166,9 @@ Resolve-DnsName whoami.<tailnet>.ts.net    # Cách B: phải resolve; Cách A: s
 
 | Triệu chứng | Nguyên nhân | Khắc phục |
 |-------------|-------------|-----------|
-| `Resolve-DnsName …` báo *does not exist* | Đang dùng Cách A (`serve`) | Chuyển `TS_PUBLISH_MODE=services` hoặc `both` |
-| Service kẹt *"approval from an admin is required"* | `autoApprovers.services` chưa vào ACL | Đặt `TS_SERVICES_AUTOAPPROVE=1`, chạy `npm run ts-init` |
+| `Resolve-DnsName …` báo *does not exist* | Đang dùng Cách A (`serve`) hoặc VIP service chưa tạo | Chuyển `TS_PUBLISH_MODE=services` hoặc `both`; publish.mjs tự tạo VIP services |
+| Service kẹt *"approval from an admin is required"* | Host chưa approve | publish.mjs tự approve qua API; nếu fallback, chạy `npm run ts-publish` lại |
+| Hostname sai trong serve.json (Cách A path không match) | `TS_HOSTNAME` chưa đúng | Xoá `TS_HOSTNAME` khỏi .env — script tự detect từ Tailscale API |
 | SSH sync gãy sau khi bật publish | (không nên xảy ra) TCP 2222 bị mất | Chạy `tailscale serve status` kiểm 2222; **không** dùng `serve clear`; xem mục 5 |
 | `tailscale serve --service` báo lỗi lệnh | Client Tailscale quá cũ | Cần client hỗ trợ Tailscale Services (đã test v1.98) |
 

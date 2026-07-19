@@ -332,6 +332,19 @@ if (tailscaleActive && publishMode !== "off") {
   } catch (e) {
     log(`WARN: publish qua tailnet lỗi nhưng bỏ qua để không ảnh hưởng stack: ${e.message}`);
   }
+
+  // Fire-and-forget: đợi tailscale online, detect hostname thật, ghi .env, re-publish nếu sai.
+  // Không block luồng chính — chạy nền.
+  try {
+    const nodeBin = process.execPath;
+    const waitScript = resolve(ROOT, "tailscale/scripts/wait-ready.mjs");
+    const dryFlag = DRY_RUN ? " --dry-run" : "";
+    const { spawn } = await import("node:child_process");
+    spawn(nodeBin, [waitScript, dryFlag], { cwd: ROOT, stdio: "ignore", detached: true }).unref();
+    log("(wait-ready đang chạy nền — tailscale sẽ tự detect hostname thật rồi ghi .env)");
+  } catch (e) {
+    log(`WARN: spawn wait-ready lỗi (bỏ qua): ${e.message}`);
+  }
 }
 
 log("");
