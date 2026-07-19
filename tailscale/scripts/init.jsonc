@@ -5,8 +5,10 @@
   "services": [
     { "name": "auth", "upstream": "http://tinyauth:3000" },
     { "name": "files", "upstream": "http://filebrowser:80" },
-    { "name": "webssh", "names": ["ttyd"], "upstream": "http://webssh:7681" },
-    { "name": "dozzle", "names": ["logs"], "upstream": "http://dozzle:8080" },
-    { "name": "whoami", "upstream": "http://whoami:80" }
-  ]
+    { "name": "webssh", "upstream": "http://webssh:7681" },
+    { "name": "ttyd", "upstream": "http://webssh:7681" },
+    { "name": "dozzle", "upstream": "http://dozzle:8080" },
+    { "name": "logs", "upstream": "http://dozzle:8080" },
+    { "name": "whoami", "upstream": "http://whoami:80" },
+  ],
 }
