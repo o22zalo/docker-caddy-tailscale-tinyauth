@@ -153,7 +153,7 @@ test("serviceNames gộp name + aliases, lọc trùng", () => {
 // ── VIP service + approval helpers ───────────────────────────────────────────
 test("buildVipServiceBody returns correct body with do-not-validate", () => {
   const body = buildVipServiceBody("svc:whoami");
-  assert.deepEqual(body, { name: "svc:whoami", ports: ["do-not-validate"] });
+  assert.deepEqual(body, { name: "whoami", ports: ["do-not-validate"] });
 });
 
 test("buildServiceApprovalBody returns { approved: true }", () => {
@@ -180,7 +180,7 @@ test("extractHostname returns empty string for invalid/missing input", () => {
 test("buildVipServiceBody with addrs includes addrs field", () => {
   const body = buildVipServiceBody("svc:auth", ["100.64.0.1", "fd7a:115c:a1e0::1"]);
   assert.deepEqual(body, {
-    name: "svc:auth",
+    name: "auth",
     ports: ["do-not-validate"],
     addrs: ["100.64.0.1", "fd7a:115c:a1e0::1"],
   });
@@ -188,18 +188,18 @@ test("buildVipServiceBody with addrs includes addrs field", () => {
 
 test("buildVipServiceBody without addrs omits addrs field", () => {
   const body = buildVipServiceBody("svc:auth");
-  assert.deepEqual(body, { name: "svc:auth", ports: ["do-not-validate"] });
+  assert.deepEqual(body, { name: "auth", ports: ["do-not-validate"] });
 });
 
 test("buildVipServiceBody with single addr omits addrs (needs 2)", () => {
   const body = buildVipServiceBody("svc:auth", ["100.64.0.1"]);
-  assert.deepEqual(body, { name: "svc:auth", ports: ["do-not-validate"] });
+  assert.deepEqual(body, { name: "auth", ports: ["do-not-validate"] });
 });
 
 // ── buildServicesBody ───────────────────────────────────────────────────────
 test("buildServicesBody returns name only (no addrs needed)", () => {
   const body = buildServicesBody("svc:auth");
-  assert.deepEqual(body, { name: "svc:auth" });
+  assert.deepEqual(body, { name: "auth" });
 });
 
 // ── extractAddrs ────────────────────────────────────────────────────────────

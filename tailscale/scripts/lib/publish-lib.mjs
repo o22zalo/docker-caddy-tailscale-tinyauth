@@ -143,15 +143,22 @@ export function buildAdvertiseCommands(services, cfg) {
 }
 
 /**
- * Cách B — build body cho PUT /vip-services/svc:<name> (Tailscale API).
+ * Strip svc: prefix nếu có (API body dùng tên trần, CLI dùng svc:).
+ */
+function stripSvcPrefix(name) {
+  return name.replace(/^svc:/, "");
+}
+
+/**
+ * Cách B — build body cho PUT /vip-services/{name} (Tailscale API).
  * Tạo VIP service trên control plane. idempotent — PUT 200 nếu đã tồn tại.
  * ports: ["do-not-validate"] vì Caddy/Tailscale terminate TLS bên ngoài.
  *
- * @param {string} serviceName - tên service (vd "svc:auth")
+ * @param {string} serviceName - tên service (vd "svc:auth" hoặc "auth")
  * @param {string[]} addrs - [IPv4, IPv6] từ tailscale status. Bắt buộc cho mode "auto".
  */
 export function buildVipServiceBody(serviceName, addrs = []) {
-  const body = { name: serviceName, ports: ["do-not-validate"] };
+  const body = { name: stripSvcPrefix(serviceName), ports: ["do-not-validate"] };
   if (addrs.length >= 2) {
     body.addrs = [addrs[0], addrs[1]];
   }
@@ -159,12 +166,12 @@ export function buildVipServiceBody(serviceName, addrs = []) {
 }
 
 /**
- * Cách C — build body cho PUT /services/svc:<name> (Tailscale API mới).
+ * Cách C — build body cho PUT /services/{name} (Tailscale API mới).
  * Không cần addrs — API tự gán VIP.
- * @param {string} serviceName - tên service (vd "svc:auth")
+ * @param {string} serviceName - tên service (vd "svc:auth" hoặc "auth")
  */
 export function buildServicesBody(serviceName) {
-  return { name: serviceName };
+  return { name: stripSvcPrefix(serviceName) };
 }
 
 /**

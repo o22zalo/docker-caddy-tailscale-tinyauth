@@ -206,33 +206,41 @@ async function applyServices(services, cfg, env) {
     const apiPath = useServicesApi ? "services" : "vip-services";
     log(`[services] ${useServicesApi ? "Update" : "Create"} ${apiPath} trên control plane (mode=${cfg.vipMode})...`);
 
+    // Step 1a: Clear existing services first (fix "needs configuration" stale state)
+    log(`[services] Clearing existing services trước khi tạo mới...`);
+    await Promise.all(cmds.map(async (cmd) => {
+      const svcPath = cmd.service.replace(/^svc:/, "");
+      if (DRY_RUN) { log(`[services] [DRY RUN] DELETE /${apiPath}/${svcPath}`); return; }
+      const r = await tsApi("DELETE", `/tailnet/${encodedTailnet}/${apiPath}/${svcPath}`, token);
+      if (r.ok) log(`[services] svc:${svcPath} cleared ✓`);
+      // Ignore 404 (service doesn't exist yet)
+    }));
+
+    // Step 1b: Create services (sequential to avoid race conditions)
     for (const cmd of cmds) {
       const svcPath = cmd.service.replace(/^svc:/, "");
       if (DRY_RUN) { log(`[services] [DRY RUN] PUT /${apiPath}/${svcPath}`); continue; }
 
       let body;
-      let logPrefix;
       if (useServicesApi) {
         body = buildServicesBody(cmd.service);
-        logPrefix = `[services] svc:${svcPath}`;
       } else {
         if (addrs.length < 2) {
           warn(`[services] svc:${svcPath} skipped: không lấy được IPv4+IPv6 từ tailscale status (got ${addrs.length} addrs). Dùng TS_SERVICES_VIP_MODE=services nếu API mới hỗ trợ không cần addrs.`);
           continue;
         }
         body = buildVipServiceBody(cmd.service, addrs);
-        logPrefix = `[services] svc:${svcPath}`;
       }
 
       const r = await tsApi("PUT", `/tailnet/${encodedTailnet}/${apiPath}/${svcPath}`, token, body);
-      if (r.ok) log(`${logPrefix} created/existed (VIP: ${r.json.addrs?.[0] || r.json.name || "?"})`);
-      else warn(`${logPrefix} create failed: HTTP ${r.status} ${r.json.message || ""}`);
+      if (r.ok) log(`[services] svc:${svcPath} created ✓ (VIP: ${r.json.addrs?.[0] || r.json.name || "?"})`);
+      else warn(`[services] svc:${svcPath} create failed: HTTP ${r.status} ${r.json.message || ""}`);
     }
   } else {
     warn("[services] Không có OAuth token — bỏ qua VIP service creation (cần chạy ts-init trước).");
   }
 
-  // ── Step 2: Advertise via CLI ──
+  // ── Step 2: Advertise via CLI (sequential — CLI writes config file) ──
   let okCount = 0;
   for (const cmd of cmds) {
     const sub = `compose exec -T tailscale tailscale ${cmd.argv.join(" ")}`;
@@ -247,16 +255,19 @@ async function applyServices(services, cfg, env) {
   }
   log(`[services] advertise xong: ${okCount}/${cmds.length}. DNS: https://<name>.${cfg.tailnet || "<tailnet>"}/`);
 
-  // ── Step 3: Approve hosts via API ──
+  // ── Step 3: Approve hosts via API (parallel — independent per service) ──
   if (token && tailnet && nodeId && cfg.autoApprove) {
-    log(`[services] Approving hosts via API...`);
-    for (const cmd of cmds) {
-      if (DRY_RUN) { log(`[services] [DRY RUN] POST approve ${cmd.service} node=${nodeId}`); continue; }
+    log(`[services] Approving hosts via API (parallel)...`);
+    const results = await Promise.all(cmds.map(async (cmd) => {
+      if (DRY_RUN) { log(`[services] [DRY RUN] POST approve ${cmd.service} node=${nodeId}`); return { svc: cmd.service, ok: true }; }
       const body = buildServiceApprovalBody();
       const r = await tsApi("POST", `/tailnet/${encodedTailnet}/services/${cmd.service}/device/${nodeId}/approved`, token, body);
-      if (r.ok) log(`[services] ${cmd.service} host approved ✓`);
-      else warn(`[services] ${cmd.service} approve failed: HTTP ${r.status} ${r.json.message || ""}`);
-    }
+      if (r.ok) { log(`[services] ${cmd.service} host approved ✓`); return { svc: cmd.service, ok: true }; }
+      warn(`[services] ${cmd.service} approve failed: HTTP ${r.status} ${r.json.message || ""}`);
+      return { svc: cmd.service, ok: false };
+    }));
+    const approved = results.filter((r) => r.ok).length;
+    log(`[services] approve xong: ${approved}/${cmds.length}`);
   } else if (cfg.autoApprove) {
     warn("[services] Không thể auto-approve (thiếu token/tailnet/nodeId). Chạy `npm run ts-init` rồi `npm run ts-publish` lại.");
   } else {
