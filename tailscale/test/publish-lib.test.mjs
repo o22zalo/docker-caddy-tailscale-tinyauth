@@ -197,9 +197,9 @@ test("buildVipServiceBody with single addr includes it", () => {
 });
 
 // ── buildServicesBody ───────────────────────────────────────────────────────
-test("buildServicesBody returns name only (no addrs needed)", () => {
+test("buildServicesBody includes do-not-validate ports (no addrs needed)", () => {
   const body = buildServicesBody("svc:auth");
-  assert.deepEqual(body, { name: "svc:auth" });
+  assert.deepEqual(body, { name: "svc:auth", ports: ["do-not-validate"] });
 });
 
 // ── extractAddrs ────────────────────────────────────────────────────────────
@@ -236,6 +236,11 @@ test("vipMode defaults to auto", () => {
 test("vipMode=services parsed correctly", () => {
   const cfg = resolvePublishConfig({ TS_PUBLISH_MODE: "services", TS_SERVICES_VIP_MODE: "services" });
   assert.equal(cfg.vipMode, "services");
+});
+
+test("vipMode=legacy-vip parsed correctly", () => {
+  const cfg = resolvePublishConfig({ TS_PUBLISH_MODE: "services", TS_SERVICES_VIP_MODE: "legacy-vip" });
+  assert.equal(cfg.vipMode, "legacy-vip");
 });
 
 test("vipMode=skip parsed correctly", () => {

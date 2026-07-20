@@ -101,7 +101,7 @@ TS_SERVICES_AUTOAPPROVE=1
                         │  • auto-detect hostname       │
                         │  • Cách A: ghi/nạp serve.json  │
                         │  • Cách B:                    │
-                        │    1. PUT /vip-services/svc:*  │──▶ tạo VIP services
+                        │    1. PUT /services/svc:*      │──▶ tạo services
                         │    2. serve --service=svc:*    │──▶ advertise
                         │    3. POST approve host       │──▶ approve node
                         │  • phòng thủ: lỗi KHÔNG gãy stack

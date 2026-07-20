@@ -7,7 +7,7 @@
 //   TS_PUBLISH_MODE       off | serve | services | both   (default: off)
 //   TS_SERVE_STYLE        subdomain | path                (Cách A, default: subdomain)
 //   TS_SERVICES_AUTOAPPROVE  1|0                          (Cách B, default: 1)
-//   TS_SERVICES_VIP_MODE  auto | services | skip          (Cách B, default: auto)
+//   TS_SERVICES_VIP_MODE  auto | services | legacy-vip | skip  (Cách B, default: auto)
 //   TS_TAILNET            <tailnet>.ts.net
 //   TS_HOSTNAME           tên node (cho serveStyle=path)
 //   TS_SERVE_JSON_PATH    (default tailscale/serve.json)
@@ -202,7 +202,7 @@ async function applyServices(services, cfg, env) {
   if (cfg.vipMode === "skip") {
     log("[services] TS_SERVICES_VIP_MODE=skip → bỏ qua VIP service creation.");
   } else if (token && tailnet) {
-    const useServicesApi = cfg.vipMode === "services";
+    const useServicesApi = cfg.vipMode !== "legacy-vip";
     const apiPath = useServicesApi ? "services" : "vip-services";
     log(`[services] ${useServicesApi ? "Update" : "Create"} ${apiPath} trên control plane (mode=${cfg.vipMode})...`);
 

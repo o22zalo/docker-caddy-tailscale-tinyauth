@@ -93,7 +93,7 @@ docker compose exec tailscale tailscale serve --service=svc:whoami --https=443 o
   (xoá các subdomain Cách A cũ). Đây là hành vi mong muốn của "off".
 - **Hostname tự detect**: `init.mjs` và `publish.mjs` đều tự lấy hostname từ Tailscale API.
   Không cần set `TS_HOSTNAME` thủ công — xóa nó khỏi .env để dùng auto-detect.
-- **VIP services tự tạo**: `publish.mjs` gọi `PUT /vip-services/svc:<name>` trước khi advertise.
+- **Services tự tạo**: `publish.mjs` mặc định gọi `PUT /services/svc:<name>` trước khi advertise.
   Nếu service đã tồn tại → idempotent (200 OK). Không cần tạo thủ công qua admin UI.
 - **Host auto-approve**: Sau advertise, `publish.mjs` gọi `POST .../approved` để approve node.
   Kết hợp với ACL `autoApprovers.services`, node tự duyệt mà không kẹt "pending approval".

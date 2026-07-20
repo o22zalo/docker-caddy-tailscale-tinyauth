@@ -25,7 +25,7 @@ export const SSH_FORWARD_TARGET = "host.docker.internal:22";
 
 export const PUBLISH_MODES = ["off", "serve", "services", "both"];
 export const SERVE_STYLES = ["subdomain", "path"];
-export const VIP_MODES = ["auto", "services", "skip"];
+export const VIP_MODES = ["auto", "services", "legacy-vip", "skip"];
 
 function truthy(value, fallback = false) {
   if (value === undefined || value === null || value === "") return fallback;
@@ -164,7 +164,7 @@ export function buildVipServiceBody(serviceName, addrs = []) {
  * @param {string} serviceName - tên service (vd "svc:auth")
  */
 export function buildServicesBody(serviceName) {
-  return { name: serviceName };
+  return { name: serviceName, ports: ["do-not-validate"] };
 }
 
 /**
