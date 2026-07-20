@@ -1,0 +1,10 @@
+{
+  "name": "rclone-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "jsonc-parser": "^3.3.1"
+  }
+}

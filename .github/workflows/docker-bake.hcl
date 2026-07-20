@@ -34,8 +34,8 @@ target "rclone" {
 }
 
 target "orchestrator" {
-  context    = "./orchestrator"
-  dockerfile = "Dockerfile"
+  context    = "."
+  dockerfile = "orchestrator/Dockerfile"
   tags       = ["proxy-stack-orchestrator:local"]
   labels     = labels("orchestrator")
   cache-from = ["type=gha,scope=orchestrator"]
@@ -43,8 +43,8 @@ target "orchestrator" {
 }
 
 target "nodesync" {
-  context    = "./nodesync"
-  dockerfile = "Dockerfile"
+  context    = "."
+  dockerfile = "nodesync/Dockerfile"
   tags       = ["proxy-stack-nodesync:local"]
   labels     = labels("nodesync")
   cache-from = ["type=gha,scope=nodesync"]

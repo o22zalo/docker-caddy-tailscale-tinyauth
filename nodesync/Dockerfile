@@ -39,12 +39,12 @@ RUN --mount=type=cache,target=/var/cache/apk apk add \
 WORKDIR /app
 
 # Cài deps trước (layer cache).
-COPY package.json ./package.json
-COPY package-lock.json ./package-lock.json
+COPY nodesync/package.json ./package.json
+COPY nodesync/package-lock.json ./package-lock.json
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --no-audit --no-fund || npm install --omit=dev --no-audit --no-fund
 
 # Copy code sidecar.
-COPY . ./
+COPY nodesync/ ./
 
 # tini init → reap zombie + forward signal.
 ENTRYPOINT ["/sbin/tini", "--"]
