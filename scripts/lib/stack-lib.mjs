@@ -123,9 +123,13 @@ export function readPredecessor(file) {
     const rawHost = source?.tailscale?.dnsName?.replace(/\.$/, "") || source?.tailscale?.ip || "";
     const host = /^[a-zA-Z0-9_.:-]+$/.test(rawHost) ? rawHost : "";
     return { hasPredecessor: true, host };
-  } catch {
-    // Không parse được → an toàn hơn là coi là CÓ predecessor (để không skip
-    // nhầm sync). Nhưng host rỗng → warm peer sẽ tự no-op.
+  } catch (e) {
+    // File tồn tại nhưng parse lỗi → có thể CÓ predecessor nhưng file hỏng.
+    // An toàn hơn là KHÔNG skip rsync (tránh mất dữ liệu). Host rỗng →
+    // warm peer sẽ tự no-op, sync.mjs vẫn chạy rsync bình thường.
+    if (e?.code !== "ENOENT") {
+      return { hasPredecessor: true, host: "" };
+    }
     return { hasPredecessor: false, host: "" };
   }
 }

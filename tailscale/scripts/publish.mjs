@@ -146,8 +146,8 @@ function execSyncSleep(ms) {
 // ── Cách A: viết serve.json (init.mjs cũng viết file này; ở đây bảo đảm runtime
 //    khớp mode hiện tại). Container có :ro mount, nên chỉ đổi file trên host là đủ
 //    khi init đã chạy — nhưng để publish độc lập, ta chỉ REBUILD khi cần và log.
-function applyServe(services, cfg) {
-  const servePath = resolve(ROOT, ENV.TS_SERVE_JSON_PATH || "tailscale/serve.json");
+function applyServe(services, cfg, env) {
+  const servePath = resolve(ROOT, env.TS_SERVE_JSON_PATH || "tailscale/serve.json");
   const next = buildServeConfig(services, cfg);
   // sanity: TCP 2222 phải còn (bất biến an toàn).
   if (!next.TCP || !next.TCP[SSH_FORWARD_PORT]) {
@@ -162,7 +162,7 @@ function applyServe(services, cfg) {
   mkdirSync(dirname(servePath), { recursive: true });
   writeFileSync(servePath, rendered, "utf8");
   log(`[serve] serve.json updated (style=${cfg.serveStyle}, ${Object.keys(next.Web).length} web host).`);
-  // Nạp lại serve config trong container (đọc TS_SERVE_CONFIG). Best-effort.
+  // Nạp lại serve config trong container. Best-effort.
   const r = dockerExec("compose restart tailscale");
   if (!r.ok) warn(`[serve] restart tailscale để nạp serve.json thất bại: ${r.out.split("\n")[0]}`);
 }
@@ -170,7 +170,7 @@ function applyServe(services, cfg) {
 // ── Cách B: advertise từng svc: qua CLI. KHÔNG đụng 2222.
 // Trước advertise: tạo VIP service trên control plane (idempotent).
 // Sau advertise: approve host qua API để tránh "pending approval".
-async function applyServices(services, cfg) {
+async function applyServices(services, cfg, env) {
   const cmds = buildAdvertiseCommands(services, cfg);
   if (!cmds.length) { log("[services] không có service để advertise."); return; }
   const online = waitTailscaleOnline();
@@ -180,8 +180,8 @@ async function applyServices(services, cfg) {
   }
 
   // ── Step 1: Create VIP services on control plane ──
-  const token = await getOAuthToken(ENV);
-  const tailnet = cfg.tailnet || ENV.TS_TAILNET || "";
+  const token = await getOAuthToken(env);
+  const tailnet = cfg.tailnet || env.TS_TAILNET || "";
   const encodedTailnet = encodeURIComponent(tailnet);
   let nodeId = "";
   if (token && tailnet) {
@@ -278,8 +278,8 @@ async function main() {
     return;
   }
 
-  if (cfg.doServe) applyServe(services, cfg);
-  if (cfg.doServices) await applyServices(services, cfg);
+  if (cfg.doServe) applyServe(services, cfg, ENV);
+  if (cfg.doServices) await applyServices(services, cfg, ENV);
 
   // Ghi state sau khi publish thành công (best-effort, không làm gãy stack).
   writePublishState(PUBLISH_STATE_FILE, {

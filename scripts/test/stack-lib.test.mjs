@@ -95,6 +95,17 @@ test("readPredecessor: file thiếu → hasPredecessor=false (an toàn, không t
   assert.deepEqual(readPredecessor("/khong/ton/tai/predecessor.json"), { hasPredecessor: false, host: "" });
 });
 
+test("readPredecessor: file hỏng (có tồn tại) → hasPredecessor=true (không skip rsync)", () => {
+  const { p, dir } = tmpFile("predecessor.json", "not-valid-json {{{");
+  try {
+    const r = readPredecessor(p);
+    assert.equal(r.hasPredecessor, true, "file hỏng → assume có predecessor → không skip rsync");
+    assert.equal(r.host, "");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("waitForHealthy: trả ngay khi healthy", async () => {
   let calls = 0;
   const deps = { sh: () => { calls++; return "healthy"; }, dc: (x) => x, dryRun: false };

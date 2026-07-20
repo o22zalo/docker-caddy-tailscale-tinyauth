@@ -13,20 +13,23 @@
 // Flags:
 //   --dry-run   Show commands without running
 //   --silent    Suppress output
-import { execSync, spawn } from "node:child_process";
+import { execSync, execFileSync, spawn } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { detectDocker } from "./runners/_docker.mjs";
-import { envGet, parseEnv } from "./lib/env-utils.mjs";
+import { envGet } from "./lib/env-utils.mjs";
 import {
   hasLitestreamConfig as libHasLitestream,
   hasRcloneConfig as libHasRclone,
+  nodesyncConfig as libNodesyncConfig,
+  firstIndexedName as libFirstIndexedName,
   uniqueTsHostname,
   sanitizeTsExtraArgs,
   readPredecessor,
   waitForHealthy as libWaitForHealthy,
   waitForTailscale as libWaitForTailscale,
+  waitForServiceRunning,
   probePredecessorSocks,
 } from "./lib/stack-lib.mjs";
 
@@ -83,31 +86,12 @@ function hasRcloneConfig() {
   return libHasRclone(ENV);
 }
 
-function truthy(value) {
-  return ["1", "true", "yes", "on"].includes(String(value ?? "0").toLowerCase());
-}
-function getNodesyncConfig() {
-  const env = { ...parseEnv(ENV), ...process.env };
-  const smoke = truthy(env.SSH_SYNC_SMOKE_ENABLE);
-  return {
-    enabled: truthy(env.SSH_ENABLE),
-    syncOnStart: String(env.SSH_SYNC_PATHS || (smoke ? "ci-runtime/smoke-sync-data" : ""))
-      .split(",")
-      .some(Boolean),
-    tailscale: truthy(env.SSH_CHANNEL_TAILSCALE_ENABLE ?? "1"),
-    orchestratorEnabled: truthy(env.CONSUL_ENABLE),
-  };
+function nodesyncConfig() {
+  return libNodesyncConfig(ENV);
 }
 
 function firstIndexedName(prefix, key) {
-  const env = { ...parseEnv(ENV), ...process.env };
-  const indexes = Object.keys(env)
-    .map((name) => name.match(new RegExp(`^${prefix}_(\\d+)_${key}$`))?.[1])
-    .filter(Boolean)
-    .sort((a, b) => Number(a) - Number(b));
-  if (indexes.length === 0) return "";
-  const index = indexes[0];
-  return `${prefix.toLowerCase()}-${index}-${env[`${prefix}_${index}_${key}`]}`.replace(/[^a-zA-Z0-9_.-]/g, "-");
+  return libFirstIndexedName(ENV, prefix, key);
 }
 
 function ensureProfile(name) {
@@ -131,7 +115,7 @@ function sh(cmd) {
 }
 const runCapture = (cmd, argv, timeoutMs = 15000) => {
   try {
-    const out = execSync([cmd, ...argv].join(" "), { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs }).toString().trim();
+    const out = execFileSync(cmd, argv, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs }).toString().trim();
     return { ok: true, out };
   } catch (e) {
     return { ok: false, out: (e.stderr || e.message || "").toString() };
@@ -197,13 +181,13 @@ if (hasRcloneConfig()) {
   ensureProfile("rclone");
   process.env.RCLONE_CONTAINER_NAME = firstIndexedName("RCLONE", "NAME");
 }
-const nodesync = getNodesyncConfig();
+const nodesync = nodesyncConfig();
 if (nodesync.enabled) {
   ensureProfile("nodesync");
-  if (nodesync.tailscale) ensureProfile("tailscale");
+  if (nodesync.tailscaleChannel) ensureProfile("tailscale");
 }
 // [YC] Hostname Tailscale DUY NHẤT theo runner — dùng helper chung từ stack-lib.
-if (nodesync.enabled && nodesync.tailscale) {
+if (nodesync.enabled && nodesync.tailscaleChannel) {
   process.env.TS_HOSTNAME = uniqueTsHostname(envGet(ENV, "TS_HOSTNAME") || "proxy-stack");
   const baseExtra = process.env.TS_EXTRA_ARGS || envGet(ENV, "TS_EXTRA_ARGS") || "--accept-dns=false";
   process.env.TS_EXTRA_ARGS = sanitizeTsExtraArgs(baseExtra);
@@ -218,7 +202,7 @@ await Promise.all([
   runPrefixed("litestream", `node litestream/scripts/restore.mjs${SILENT ? " --silent" : ""}`),
   runPrefixed("rclone", `node rclone/scripts/pull.mjs${SILENT ? " --silent" : ""}`),
 ]);
-if (nodesync.enabled && nodesync.syncOnStart) {
+if (nodesync.enabled && nodesync.paths.length) {
   // Discovery bắt buộc orchestrator (RTDB) để chọn predecessor. Không có nó thì
   // sync.mjs sẽ throw "thiếu discovery manifest" → fail rõ ràng ngay từ đây.
   if (!nodesync.orchestratorEnabled) {
@@ -231,12 +215,12 @@ if (nodesync.enabled && nodesync.syncOnStart) {
   //    ssh.<domain> về chính node mới trước khi rsync xong. cloudflared connect
   //    ở bước "Start stack" phía dưới, SAU khi rsync xong.
   const services = ["orchestrator", "nodesync"];
-  if (nodesync.tailscale) services.unshift("tailscale");
+  if (nodesync.tailscaleChannel) services.unshift("tailscale");
   run(compose(`up -d ${services.join(" ")}`));
   await waitNodesync();
   // 2b) Tailscale userspace transport. Serve TCP 2222 forwards to the host
   //     runner's sshd because users, identity files and workspace live there.
-  if (nodesync.tailscale && !DRY_RUN) {
+  if (nodesync.tailscaleChannel && !DRY_RUN) {
     const tsReady = await waitTailscaleOnline();
     if (!tsReady) log("WARN: Tailscale chưa sẵn sàng; sẽ fallback cloudflare/hybrid nếu bật.");
     else {
@@ -257,7 +241,7 @@ if (nodesync.enabled && nodesync.syncOnStart) {
     log("Nodesync (first-runner) hoàn tất; orchestrator có thể giành leader ngay.");
   } else {
     log(`Predecessor tìm thấy (host=${pred.host || "(chưa có tailnet host)"}).`);
-    if (nodesync.tailscale && pred.host) {
+    if (nodesync.tailscaleChannel && pred.host) {
       // Thay hard-wait 8s: probe SOCKS5 tới predecessor, retry ngắn, thoát ngay.
       await probePredecessorSocks(pred.host, libDeps, { port: 2222 });
     }
@@ -277,6 +261,18 @@ if (mode === "ci") {
 }
 
 run(dc("compose ps"));
+
+// Fail fast if cloudflared is not running — poll thay vì sleep mù.
+if (!DRY_RUN) {
+  const cfReady = await waitForServiceRunning("cloudflared", libDeps, 30_000, 500);
+  if (!cfReady) {
+    console.error("ERROR: cloudflared is not running after up");
+    try { run(dc("compose ps -a")); } catch {}
+    try { run(dc("compose logs --no-color cloudflared")); } catch {}
+    process.exit(1);
+  }
+  log("cloudflared running ✓");
+}
 
 // Publish stack apps qua tailnet (Cách A/B theo TS_PUBLISH_MODE). Tách hẳn ra
 // tailscale/scripts/publish.mjs — up.mjs chỉ gọi 1 dòng. Chỉ chạy khi profile
@@ -298,9 +294,9 @@ if (tailscaleActive && publishMode !== "off") {
   try {
     const nodeBin = process.execPath;
     const waitScript = resolve(ROOT, "tailscale/scripts/wait-ready.mjs");
-    const dryFlag = DRY_RUN ? " --dry-run" : "";
+    const waitArgs = [waitScript, ...(DRY_RUN ? ["--dry-run"] : []), ...(SILENT ? ["--silent"] : [])];
     const { spawn } = await import("node:child_process");
-    spawn(nodeBin, [waitScript, dryFlag], { cwd: ROOT, stdio: "ignore", detached: true }).unref();
+    spawn(nodeBin, waitArgs, { cwd: ROOT, stdio: "ignore", detached: true }).unref();
     log("(wait-ready đang chạy nền — tailscale sẽ tự detect hostname thật rồi ghi .env)");
   } catch (e) {
     log(`WARN: spawn wait-ready lỗi (bỏ qua): ${e.message}`);

@@ -67,7 +67,7 @@ function step(name, cmd, cmdArgs, { allowFail = false } = {}) {
       log(`::endgroup::`);
       return resolvePromise({ name, ok: true, durationMs: 0 });
     }
-    const proc = spawn(cmd, cmdArgs, { cwd: ROOT, shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn(cmd, cmdArgs, { cwd: ROOT, shell: process.platform === "win32", stdio: ["ignore", "pipe", "pipe"] });
     const pipe = (stream, data) => {
       if (SILENT) return;
       for (const line of data.toString().split(/\r?\n/).filter(Boolean)) stream.write(`[${name}] ${line}\n`);

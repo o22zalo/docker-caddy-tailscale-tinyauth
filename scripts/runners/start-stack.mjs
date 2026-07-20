@@ -6,7 +6,7 @@
 // Flags:
 //   --dry-run   Show commands without running
 //   --silent    Suppress output
-import { execSync, spawn } from "node:child_process";
+import { execSync, execFileSync, spawn } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { detectDocker } from "./_docker.mjs";
@@ -117,7 +117,7 @@ function composeArgs(command) {
 // deps chung cho stack-lib (inject run/sh/dc/log để dễ test + tái dùng).
 const runCapture = (cmd, argv, timeoutMs = 15000) => {
   try {
-    const out = execSync([cmd, ...argv].join(" "), { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs }).toString().trim();
+    const out = execFileSync(cmd, argv, { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"], timeout: timeoutMs }).toString().trim();
     return { ok: true, out };
   } catch (e) {
     return { ok: false, out: (e.stderr || e.message || "").toString() };
@@ -285,9 +285,9 @@ run(dc("compose ps"));
     try {
       const nodeBin = process.execPath;
       const waitScript = resolve(ROOT, "tailscale/scripts/wait-ready.mjs");
-      const dryFlag = DRY_RUN ? " --dry-run" : "";
+      const waitArgs = [waitScript, ...(DRY_RUN ? ["--dry-run"] : []), ...(SILENT ? ["--silent"] : [])];
       const { spawn } = await import("node:child_process");
-      spawn(nodeBin, [waitScript, dryFlag], { cwd: ROOT, stdio: "ignore", detached: true }).unref();
+      spawn(nodeBin, waitArgs, { cwd: ROOT, stdio: "ignore", detached: true }).unref();
       log("(wait-ready đang chạy nền — tailscale sẽ tự detect hostname thật rồi ghi .env)");
     } catch (e) {
       log(`WARN: spawn wait-ready lỗi (bỏ qua): ${e.message}`);
