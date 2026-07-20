@@ -148,12 +148,12 @@ export function buildAdvertiseCommands(services, cfg) {
  * ports: ["do-not-validate"] vì Caddy/Tailscale terminate TLS bên ngoài.
  *
  * @param {string} serviceName - tên service (vd "svc:auth")
- * @param {string[]} addrs - [IPv4, IPv6] từ tailscale status. Bắt buộc cho mode "auto".
+ * @param {string[]} addrs - [IPv4] từ tailscale status. Chỉ 1 IPv4 hoặc rỗng.
  */
 export function buildVipServiceBody(serviceName, addrs = []) {
   const body = { name: serviceName, ports: ["do-not-validate"] };
-  if (addrs.length >= 2) {
-    body.addrs = [addrs[0], addrs[1]];
+  if (addrs.length >= 1) {
+    body.addrs = [addrs[0]];
   }
   return body;
 }

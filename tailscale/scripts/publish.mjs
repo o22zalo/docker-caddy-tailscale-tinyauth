@@ -223,8 +223,8 @@ async function applyServices(services, cfg, env) {
       if (useServicesApi) {
         body = buildServicesBody(cmd.service);
       } else {
-        if (addrs.length < 2) {
-          warn(`[services] ${cmd.service} skipped: không lấy được IPv4+IPv6 từ tailscale status (got ${addrs.length} addrs). Dùng TS_SERVICES_VIP_MODE=services nếu API mới hỗ trợ không cần addrs.`);
+        if (addrs.length < 1) {
+          warn(`[services] ${cmd.service} skipped: không lấy được IPv4 từ tailscale status (got ${addrs.length} addrs). Dùng TS_SERVICES_VIP_MODE=services nếu API mới hỗ trợ không cần addrs.`);
           continue;
         }
         body = buildVipServiceBody(cmd.service, addrs);

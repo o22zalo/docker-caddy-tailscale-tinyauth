@@ -177,12 +177,12 @@ test("extractHostname returns empty string for invalid/missing input", () => {
 });
 
 // ── buildVipServiceBody with addrs ──────────────────────────────────────────
-test("buildVipServiceBody with addrs includes addrs field", () => {
+test("buildVipServiceBody with addrs includes single IPv4", () => {
   const body = buildVipServiceBody("svc:auth", ["100.64.0.1", "fd7a:115c:a1e0::1"]);
   assert.deepEqual(body, {
     name: "svc:auth",
     ports: ["do-not-validate"],
-    addrs: ["100.64.0.1", "fd7a:115c:a1e0::1"],
+    addrs: ["100.64.0.1"],
   });
 });
 
@@ -191,9 +191,9 @@ test("buildVipServiceBody without addrs omits addrs field", () => {
   assert.deepEqual(body, { name: "svc:auth", ports: ["do-not-validate"] });
 });
 
-test("buildVipServiceBody with single addr omits addrs (needs 2)", () => {
+test("buildVipServiceBody with single addr includes it", () => {
   const body = buildVipServiceBody("svc:auth", ["100.64.0.1"]);
-  assert.deepEqual(body, { name: "svc:auth", ports: ["do-not-validate"] });
+  assert.deepEqual(body, { name: "svc:auth", ports: ["do-not-validate"], addrs: ["100.64.0.1"] });
 });
 
 // ── buildServicesBody ───────────────────────────────────────────────────────
