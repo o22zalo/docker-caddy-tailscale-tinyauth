@@ -25,6 +25,7 @@ export const SSH_FORWARD_TARGET = "host.docker.internal:22";
 
 export const PUBLISH_MODES = ["off", "serve", "services", "both"];
 export const SERVE_STYLES = ["subdomain", "path"];
+export const VIP_MODES = ["auto", "services", "skip"];
 
 function truthy(value, fallback = false) {
   if (value === undefined || value === null || value === "") return fallback;
@@ -47,12 +48,18 @@ export function resolvePublishConfig(env = {}) {
   const tailnet = trimDots(env.TS_TAILNET);
   const nodeHost = trimDots(env.TS_HOSTNAME) || "proxy-stack";
 
+  const rawVipMode = String(env.TS_SERVICES_VIP_MODE ?? "auto").trim().toLowerCase();
+  const vipMode = VIP_MODES.includes(rawVipMode) ? rawVipMode : "auto";
+
   const warnings = [];
   if (rawMode && !PUBLISH_MODES.includes(rawMode)) {
     warnings.push(`TS_PUBLISH_MODE="${rawMode}" không hợp lệ → dùng "off". Hợp lệ: ${PUBLISH_MODES.join(", ")}.`);
   }
   if (rawStyle && !SERVE_STYLES.includes(rawStyle)) {
     warnings.push(`TS_SERVE_STYLE="${rawStyle}" không hợp lệ → dùng "subdomain". Hợp lệ: ${SERVE_STYLES.join(", ")}.`);
+  }
+  if (rawVipMode && !VIP_MODES.includes(rawVipMode)) {
+    warnings.push(`TS_SERVICES_VIP_MODE="${rawVipMode}" không hợp lệ → dùng "auto". Hợp lệ: ${VIP_MODES.join(", ")}.`);
   }
 
   return {
@@ -61,6 +68,7 @@ export function resolvePublishConfig(env = {}) {
     autoApprove,
     tailnet,
     nodeHost,
+    vipMode,
     doServe: mode === "serve" || mode === "both",
     doServices: mode === "services" || mode === "both",
     warnings,
@@ -137,10 +145,40 @@ export function buildAdvertiseCommands(services, cfg) {
 /**
  * Cách B — build body cho PUT /vip-services/svc:<name> (Tailscale API).
  * Tạo VIP service trên control plane. idempotent — PUT 200 nếu đã tồn tại.
- *ports: ["do-not-validate"] vì Caddy/Tailscale terminate TLS bên ngoài.
+ * ports: ["do-not-validate"] vì Caddy/Tailscale terminate TLS bên ngoài.
+ *
+ * @param {string} serviceName - tên service (vd "svc:auth")
+ * @param {string[]} addrs - [IPv4, IPv6] từ tailscale status. Bắt buộc cho mode "auto".
  */
-export function buildVipServiceBody(serviceName) {
-  return { name: serviceName, ports: ["do-not-validate"] };
+export function buildVipServiceBody(serviceName, addrs = []) {
+  const body = { name: serviceName, ports: ["do-not-validate"] };
+  if (addrs.length >= 2) {
+    body.addrs = [addrs[0], addrs[1]];
+  }
+  return body;
+}
+
+/**
+ * Cách C — build body cho PUT /services/svc:<name> (Tailscale API mới).
+ * Không cần addrs — API tự gán VIP.
+ * @param {string} serviceName - tên service (vd "svc:auth")
+ */
+export function buildServicesBody(serviceName) {
+  return { name: serviceName };
+}
+
+/**
+ * Extract TailscaleIPs [IPv4, IPv6] từ tailscale status --json output.
+ * Trả [] nếu không parse được.
+ */
+export function extractAddrs(statusJson) {
+  try {
+    const st = typeof statusJson === "string" ? JSON.parse(statusJson) : statusJson;
+    const ips = st?.Self?.TailscaleIPs;
+    if (Array.isArray(ips) && ips.length >= 2) return [ips[0], ips[1]];
+    if (Array.isArray(ips) && ips.length === 1) return [ips[0]];
+    return [];
+  } catch { return []; }
 }
 
 /**

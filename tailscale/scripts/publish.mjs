@@ -7,6 +7,7 @@
 //   TS_PUBLISH_MODE       off | serve | services | both   (default: off)
 //   TS_SERVE_STYLE        subdomain | path                (Cách A, default: subdomain)
 //   TS_SERVICES_AUTOAPPROVE  1|0                          (Cách B, default: 1)
+//   TS_SERVICES_VIP_MODE  auto | services | skip          (Cách B, default: auto)
 //   TS_TAILNET            <tailnet>.ts.net
 //   TS_HOSTNAME           tên node (cho serveStyle=path)
 //   TS_SERVE_JSON_PATH    (default tailscale/serve.json)
@@ -30,6 +31,8 @@ import {
   buildServeConfig,
   buildServiceApprovalBody,
   buildVipServiceBody,
+  buildServicesBody,
+  extractAddrs,
   extractHostname,
   resolvePublishConfig,
   SSH_FORWARD_PORT,
@@ -179,23 +182,51 @@ async function applyServices(services, cfg, env) {
     return;
   }
 
-  // ── Step 1: Create VIP services on control plane ──
+  // ── Step 0: Get runtime info (nodeId, addrs) ──
   const token = await getOAuthToken(env);
   const tailnet = cfg.tailnet || env.TS_TAILNET || "";
   const encodedTailnet = encodeURIComponent(tailnet);
   let nodeId = "";
+  let addrs = [];
+  let statusJson = "";
   if (token && tailnet) {
     const st = dockerExec("compose exec -T tailscale tailscale status --json", { capture: true });
     if (st.ok && st.out) {
+      statusJson = st.out;
       try { nodeId = JSON.parse(st.out)?.Self?.ID || ""; } catch {}
+      addrs = extractAddrs(st.out);
     }
-    log(`[services] Tạo VIP services trên control plane...`);
+  }
+
+  // ── Step 1: Create/Update services on control plane ──
+  if (cfg.vipMode === "skip") {
+    log("[services] TS_SERVICES_VIP_MODE=skip → bỏ qua VIP service creation.");
+  } else if (token && tailnet) {
+    const useServicesApi = cfg.vipMode === "services";
+    const apiPath = useServicesApi ? "services" : "vip-services";
+    log(`[services] ${useServicesApi ? "Update" : "Create"} ${apiPath} trên control plane (mode=${cfg.vipMode})...`);
+
     for (const cmd of cmds) {
-      if (DRY_RUN) { log(`[services] [DRY RUN] PUT /vip-services/${cmd.service}`); continue; }
-      const body = buildVipServiceBody(cmd.service);
-      const r = await tsApi("PUT", `/tailnet/${encodedTailnet}/vip-services/${cmd.service}`, token, body);
-      if (r.ok) log(`[services] ${cmd.service} created/existed (VIP: ${r.json.addrs?.[0] || "?"})`);
-      else warn(`[services] ${cmd.service} create failed: HTTP ${r.status} ${r.json.message || ""}`);
+      const svcPath = cmd.service.replace(/^svc:/, "");
+      if (DRY_RUN) { log(`[services] [DRY RUN] PUT /${apiPath}/${svcPath}`); continue; }
+
+      let body;
+      let logPrefix;
+      if (useServicesApi) {
+        body = buildServicesBody(cmd.service);
+        logPrefix = `[services] svc:${svcPath}`;
+      } else {
+        if (addrs.length < 2) {
+          warn(`[services] svc:${svcPath} skipped: không lấy được IPv4+IPv6 từ tailscale status (got ${addrs.length} addrs). Dùng TS_SERVICES_VIP_MODE=services nếu API mới hỗ trợ không cần addrs.`);
+          continue;
+        }
+        body = buildVipServiceBody(cmd.service, addrs);
+        logPrefix = `[services] svc:${svcPath}`;
+      }
+
+      const r = await tsApi("PUT", `/tailnet/${encodedTailnet}/${apiPath}/${svcPath}`, token, body);
+      if (r.ok) log(`${logPrefix} created/existed (VIP: ${r.json.addrs?.[0] || r.json.name || "?"})`);
+      else warn(`${logPrefix} create failed: HTTP ${r.status} ${r.json.message || ""}`);
     }
   } else {
     warn("[services] Không có OAuth token — bỏ qua VIP service creation (cần chạy ts-init trước).");

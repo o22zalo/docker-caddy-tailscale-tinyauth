@@ -5,6 +5,8 @@ import {
   buildServeConfig,
   buildServiceApprovalBody,
   buildVipServiceBody,
+  buildServicesBody,
+  extractAddrs,
   extractHostname,
   mergeServiceAutoApprovers,
   resolvePublishConfig,
@@ -172,4 +174,77 @@ test("extractHostname returns empty string for invalid/missing input", () => {
   assert.equal(extractHostname("not json"), "");
   assert.equal(extractHostname(JSON.stringify({ Self: {} })), "");
   assert.equal(extractHostname(null), "");
+});
+
+// ── buildVipServiceBody with addrs ──────────────────────────────────────────
+test("buildVipServiceBody with addrs includes addrs field", () => {
+  const body = buildVipServiceBody("svc:auth", ["100.64.0.1", "fd7a:115c:a1e0::1"]);
+  assert.deepEqual(body, {
+    name: "svc:auth",
+    ports: ["do-not-validate"],
+    addrs: ["100.64.0.1", "fd7a:115c:a1e0::1"],
+  });
+});
+
+test("buildVipServiceBody without addrs omits addrs field", () => {
+  const body = buildVipServiceBody("svc:auth");
+  assert.deepEqual(body, { name: "svc:auth", ports: ["do-not-validate"] });
+});
+
+test("buildVipServiceBody with single addr omits addrs (needs 2)", () => {
+  const body = buildVipServiceBody("svc:auth", ["100.64.0.1"]);
+  assert.deepEqual(body, { name: "svc:auth", ports: ["do-not-validate"] });
+});
+
+// ── buildServicesBody ───────────────────────────────────────────────────────
+test("buildServicesBody returns name only (no addrs needed)", () => {
+  const body = buildServicesBody("svc:auth");
+  assert.deepEqual(body, { name: "svc:auth" });
+});
+
+// ── extractAddrs ────────────────────────────────────────────────────────────
+test("extractAddrs parses IPv4 and IPv6 from tailscale status", () => {
+  const json = JSON.stringify({
+    Self: {
+      TailscaleIPs: ["100.64.0.1", "fd7a:115c:a1e0::abcd:1234"],
+      HostName: "test",
+    },
+  });
+  assert.deepEqual(extractAddrs(json), ["100.64.0.1", "fd7a:115c:a1e0::abcd:1234"]);
+});
+
+test("extractAddrs returns single addr if only IPv4 available", () => {
+  const json = JSON.stringify({
+    Self: { TailscaleIPs: ["100.64.0.1"] },
+  });
+  assert.deepEqual(extractAddrs(json), ["100.64.0.1"]);
+});
+
+test("extractAddrs returns empty for missing/invalid input", () => {
+  assert.deepEqual(extractAddrs(""), []);
+  assert.deepEqual(extractAddrs("not json"), []);
+  assert.deepEqual(extractAddrs(JSON.stringify({ Self: {} })), []);
+  assert.deepEqual(extractAddrs(null), []);
+});
+
+// ── vipMode in resolvePublishConfig ─────────────────────────────────────────
+test("vipMode defaults to auto", () => {
+  const cfg = resolvePublishConfig({ TS_PUBLISH_MODE: "services" });
+  assert.equal(cfg.vipMode, "auto");
+});
+
+test("vipMode=services parsed correctly", () => {
+  const cfg = resolvePublishConfig({ TS_PUBLISH_MODE: "services", TS_SERVICES_VIP_MODE: "services" });
+  assert.equal(cfg.vipMode, "services");
+});
+
+test("vipMode=skip parsed correctly", () => {
+  const cfg = resolvePublishConfig({ TS_PUBLISH_MODE: "services", TS_SERVICES_VIP_MODE: "skip" });
+  assert.equal(cfg.vipMode, "skip");
+});
+
+test("vipMode invalid value falls back to auto with warning", () => {
+  const cfg = resolvePublishConfig({ TS_PUBLISH_MODE: "services", TS_SERVICES_VIP_MODE: "bogus" });
+  assert.equal(cfg.vipMode, "auto");
+  assert.ok(cfg.warnings.some((w) => w.includes("TS_SERVICES_VIP_MODE")));
 });
