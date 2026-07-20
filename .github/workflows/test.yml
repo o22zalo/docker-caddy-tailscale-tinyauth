@@ -89,7 +89,6 @@ jobs:
           docker buildx bake \
             --file .github/workflows/docker-bake.hcl \
             --set "*.args.GIT_SHA=$GIT_SHA" \
-            --set "REGISTRY_CACHE=$REGISTRY_CACHE" \
             --metadata-file ci-runtime/bake-metadata.json \
             --load \
             default
