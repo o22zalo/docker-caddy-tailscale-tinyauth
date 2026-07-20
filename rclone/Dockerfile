@@ -6,4 +6,4 @@ WORKDIR /app
 COPY package*.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
 COPY scripts/lib ./scripts/lib
-COPY rclone/scripts ./rclone/scripts
+COPY scripts ./scripts

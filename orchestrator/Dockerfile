@@ -23,12 +23,12 @@ RUN --mount=type=cache,target=/var/cache/apk apk add \
 WORKDIR /app
 
 # Cài deps trước để tận dụng layer cache
-COPY orchestrator/package.json ./package.json
-COPY orchestrator/package-lock.json ./package-lock.json
+COPY package.json ./package.json
+COPY package-lock.json ./package-lock.json
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev --no-audit --no-fund
 
 # Copy toàn bộ code sidecar
-COPY orchestrator/ ./
+COPY . ./
 
 # tini làm init để reap zombie + forward signal (quan trọng cho graceful handoff)
 ENTRYPOINT ["/sbin/tini", "--"]

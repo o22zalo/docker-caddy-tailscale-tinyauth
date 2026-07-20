@@ -476,6 +476,7 @@ The four app types (`image`, `dockerfile`, `npx`, `code`) have templates in
 - Do not use `curl -L` in stack smoke tests (auth redirects break the check).
 - Do not leave `tinyauth_forwarder` on whoami in quick-tunnel CI (catch-all must be public).
 - Do not inline multi-step bash logic in Compose YAML or CI workflow YAML — extract to a script.
+- **Do not hardcode repository owner/name** (e.g. `hoahien7281/docker-caddy-tailscale-tinyauth`) in CI files, Dockerfiles, or scripts. Use dynamic variables: `${{ github.repository }}` in GitHub Actions, `$(Build.Repository.Name)` in Azure Pipelines, or environment variables.
 
 ## Common commands
 
@@ -544,5 +545,6 @@ vs quick modes in AGENTS.md and README.
 - [ ] Env vars documented; Tinyauth keys valid for v5
 - [ ] Root `.env.example` / `.env.ci` set `COMPOSE_PROFILES` appropriately
 - [ ] README and AGENTS.md still accurate
+- [ ] No hardcoded repo owner/name — use `${{ github.repository }}` or equivalent
 - [ ] Sau khi viết/sửa file `.mjs`/`.js`, **đã chạy `node --check <file>`** trước khi coi task là done; nếu lỗi thì tự sửa và check lại, tối đa 3 lần
 - [ ] **Đã ghi nội dung cập nhật vào `.git/.git-o-commit-template`** (sẵn sàng user `git commit` không `-m`)
