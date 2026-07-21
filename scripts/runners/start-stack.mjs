@@ -171,6 +171,7 @@ async function waitForTailscale(timeoutMs = 60_000) {
 
 // Show active profiles
 const envFile = resolve(ROOT, ".env");
+const nodesync = nodesyncConfig(envFile);
 {
   const t0 = stepBegin("profile-detect");
   log("Base COMPOSE_PROFILES:", envGet(envFile, "COMPOSE_PROFILES") || "(unset)");
@@ -182,7 +183,6 @@ const envFile = resolve(ROOT, ".env");
     ensureProfile("rclone", envFile);
     process.env.RCLONE_CONTAINER_NAME = firstIndexedName(envFile, "RCLONE", "NAME");
   }
-  const nodesync = nodesyncConfig(envFile);
   if (nodesync.enabled) {
     ensureProfile("nodesync", envFile);
     if (nodesync.tailscaleChannel) ensureProfile("tailscale", envFile);
