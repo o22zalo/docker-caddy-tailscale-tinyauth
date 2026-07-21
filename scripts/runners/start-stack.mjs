@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { detectDocker } from "./_docker.mjs";
 import { envGet } from "../lib/env-utils.mjs";
 import { redactSecrets } from "../lib/redact-utils.mjs";
+
 import {
   hasLitestreamConfig as libHasLitestream,
   hasRcloneConfig as libHasRclone,
@@ -343,19 +344,6 @@ const phase3Start = Date.now();
     run(dc("compose up -d --remove-orphans"));
     stepEnd("compose-up", t, { note: "named mode" });
   } else {
-    log("Resolved cloudflared service (must use --url, not run-with-token):");
-    if (!DRY_RUN) {
-      try {
-        const cfg = sh(dc("compose -f docker-compose.yml -f docker-compose.ci.yml config"));
-        const block = cfg.split("\n");
-        let printing = false;
-        for (const line of block) {
-          if (/^  cloudflared:/.test(line)) printing = true;
-          else if (printing && /^  [a-z]/.test(line)) break;
-          if (printing) log(redactSecrets(line));
-        }
-      } catch {}
-    }
     run(dc("compose -f docker-compose.yml -f docker-compose.ci.yml up -d --remove-orphans"));
     stepEnd("compose-up", t, { note: "quick/CI mode" });
   }
@@ -435,7 +423,8 @@ const phase5Start = Date.now();
       run(dc("compose ps -a"));
     } catch {}
     try {
-      run(dc("compose logs --no-color cloudflared"));
+      const rawLogs = sh(dc("compose logs --no-color cloudflared"));
+      if (rawLogs) log(redactSecrets(rawLogs));
     } catch {}
     process.exit(1);
   }
