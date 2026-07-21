@@ -60,15 +60,31 @@ function ensureUser(u) {
   }
   throw new Error(`không tạo được user ${u.user}: useradd(${r.err}) adduser(${r2.err})`);
 }
-// Ghi file có quyền chỉ định một cách idempotent (install tạo file + set mode trong 1 bước, ghi đè an toàn).
-function installFile(content, mode, dest, index, name) {
+// Ghi file vào temp trước khi dùng sudo install (giữ nguyên逻辑, chỉ batch sudo calls).
+function prepareTmp(content, name, index) {
   const tmp = resolve(`ci-runtime/nodesync/${name}-${index}`);
   if (!dry) {
     mkdirSync(resolve("ci-runtime/nodesync"), { recursive: true });
     writeFileSync(tmp, content, { mode: 0o600 });
   }
-  const r = privileged("install", ["-m", mode, tmp, dest]);
-  if (!r.ok) throw new Error(`install ${dest}: ${r.err}`);
+  return tmp;
+}
+// Batch nhiều thao tác privilege vào 1 sudo call duy nhất — giảm subprocess overhead.
+function batchPrivileged(label, cmds) {
+  if (dry) { log(`[DRY RUN] batch ${label}: ${cmds.length} ops`); return; }
+  // cmds = [{cmd, args, input?, capture?}]
+  if (cmds.length === 1) { const c = cmds[0]; privileged(c.cmd, c.args, c); return; }
+  // Gộp thành 1 shell script chạy sudo 1 lần
+  const parts = [];
+  for (const c of cmds) {
+    const cmdLine = c.input
+      ? `echo ${JSON.stringify(c.input)} | ${c.cmd} ${c.args.map(a => JSON.stringify(a)).join(" ")}`
+      : `${c.cmd} ${c.args.map(a => JSON.stringify(a)).join(" ")}`;
+    parts.push(cmdLine);
+  }
+  const script = parts.join(" && ");
+  const r = privileged("sh", ["-c", script]);
+  if (!r.ok) throw new Error(`batch ${label}: ${r.err}`);
 }
 function create(u) {
   if (!/^[a-z_][a-z0-9_-]*[$]?$/i.test(u.user)) throw new Error(`SSH user invalid: ${u.user}`);
@@ -81,15 +97,27 @@ function create(u) {
   }
   const home = spawnSync("getent", ["passwd", u.user], { encoding: "utf8" }).stdout?.trim().split(":")[5] || `/home/${u.user}`,
     ssh = `${home}/.ssh`;
-  privileged("mkdir", ["-p", ssh]);
-  privileged("chmod", ["700", ssh]);
-  if (u.publicKey) installFile(u.publicKey.trim() + "\n", "600", `${ssh}/authorized_keys`, u.index, "authorized");
-  if (u.privateKey) installFile(u.privateKey.trim() + "\n", "600", `${ssh}/id_ed25519`, u.index, "key");
-  privileged("chown", ["-R", `${u.user}:${u.user}`, ssh]);
+  // Prepare tmp files trước (không cần sudo)
+  const tmpFiles = [];
+  if (u.publicKey) tmpFiles.push({ dest: `${ssh}/authorized_keys`, tmp: prepareTmp(u.publicKey.trim() + "\n", "authorized", u.index), mode: "600" });
+  if (u.privateKey) tmpFiles.push({ dest: `${ssh}/id_ed25519`, tmp: prepareTmp(u.privateKey.trim() + "\n", "key", u.index), mode: "600" });
+  // Batch: mkdir + chmod + install(×N) + chown → 1 sudo call
+  const sshOps = [
+    { cmd: "mkdir", args: ["-p", ssh] },
+    { cmd: "chmod", args: ["700", ssh] },
+    ...tmpFiles.map(f => ({ cmd: "install", args: ["-m", f.mode, f.tmp, f.dest] })),
+    { cmd: "chown", args: ["-R", `${u.user}:${u.user}`, ssh] },
+  ];
+  batchPrivileged(`ssh-setup-${u.user}`, sshOps);
   if (u.privileged) {
     const group = spawnSync("getent", ["group", "sudo"]).status === 0 ? "sudo" : "wheel";
-    privileged("usermod", ["-aG", group, u.user]);
-    installFile(`${u.user} ALL=(ALL) NOPASSWD:ALL\n`, "0440", `/etc/sudoers.d/nodesync-${u.user}`, u.index, "sudoers");
+    const sudoersTmp = prepareTmp(`${u.user} ALL=(ALL) NOPASSWD:ALL\n`, "sudoers", u.index);
+    const sudoersDest = `/etc/sudoers.d/nodesync-${u.user}`;
+    // Batch: usermod + install sudoers → 1 sudo call
+    batchPrivileged(`sudoers-${u.user}`, [
+      { cmd: "usermod", args: ["-aG", group, u.user] },
+      { cmd: "install", args: ["-m", "0440", sudoersTmp, sudoersDest] },
+    ]);
     log(`sudo NOPASSWD configured user=${u.user}`);
   }
   return u.user;

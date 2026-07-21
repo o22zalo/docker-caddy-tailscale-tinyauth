@@ -90,7 +90,6 @@ function step(name, cmd, cmdArgs, { allowFail = false } = {}) {
 }
 
 const NODE = process.execPath;
-const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
 const dryFlag = DRY_RUN ? ["--dry-run"] : [];
 
 async function main() {
@@ -98,11 +97,11 @@ async function main() {
   log(`=== Setup Host start ts=${ts()} dryRun=${DRY_RUN} ===`);
 
   // (1) Materialize SSH environment + mask secrets — BẮT BUỘC xong trước A/B.
-  await step("ssh:env", NPM, ["run", "ssh:env", "--prefix", "nodesync"]);
+  await step("ssh:env", NODE, ["nodesync/scripts/ssh-setup-env.mjs"]);
 
   // Nhánh A — ghi .env TUẦN TỰ để tránh race trên .env: smoke → tinyauth.
   const branchEnvWriters = (async () => {
-    await step("ssh:smoke:prepare", NPM, ["run", "ssh:smoke:prepare", "--prefix", "nodesync"]);
+    await step("ssh:smoke:prepare", NODE, ["nodesync/scripts/smoke-data.mjs"]);
     await step("tinyauth-ci-user", NODE, ["scripts/runners/setup-tinyauth-ci-user.mjs", ...dryFlag]);
   })();
 

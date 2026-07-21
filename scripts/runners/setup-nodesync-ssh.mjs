@@ -76,6 +76,8 @@ function safeSyncPath(p) {
   return p;
 }
 function grantSyncReads() {
+  // Thu thập tất cả chmod commands, chạy 1 lần sudo thay vì N lần
+  const cmds = [];
   for (const raw of syncPaths) {
     const rel = safeSyncPath(raw);
     const target = resolve(ROOT, rel);
@@ -84,10 +86,13 @@ function grantSyncReads() {
     let cur = target;
     while (cur && cur !== root) {
       cur = dirname(cur);
-      if (existsSync(cur)) sudo("chmod", ["a+X", cur]);
+      if (existsSync(cur)) cmds.push(`chmod a+X ${JSON.stringify(cur)}`);
     }
-    sudo("chmod", ["-R", "a+rX", target]);
+    cmds.push(`chmod -R a+rX ${JSON.stringify(target)}`);
   }
+  if (cmds.length === 0) return;
+  if (dry) { log(`[DRY RUN] grantSyncReads: ${cmds.length} chmod ops`); return; }
+  execFileSync("sudo", ["-n", "sh", "-c", cmds.join(" && ")], { stdio: "inherit" });
 }
 
 // ── Chỉ cài openssh-server khi thiếu sshd (KHÔNG đụng rsync/sshpass) ──────────
@@ -195,9 +200,12 @@ writeFileSync(identityFile, nodeId + "\n", { mode: 0o644 });
 
 timed("ensure-sshd", ensureSshd);
 
-sudo("mkdir", ["-p", "/run/sshd", "/etc/ssh/sshd_config.d", "/etc/nodesync"]);
-sudo("install", ["-m", "0644", identityFile, "/etc/nodesync/node-id"]);
-sudo("ln", ["-sfn", ROOT, "/workspace"]);
+// Batch: mkdir + install + ln → 1 sudo call thay vì 3
+sudo("sh", ["-c", [
+  `mkdir -p /run/sshd /etc/ssh/sshd_config.d /etc/nodesync`,
+  `install -m 0644 ${JSON.stringify(identityFile)} /etc/nodesync/node-id`,
+  `ln -sfn ${JSON.stringify(ROOT)} /workspace`,
+].join(" && ")]);
 timed("grant-sync-reads", grantSyncReads);
 
 const hostKeyPub = timed("ensure-host-key", ensureHostKey);
