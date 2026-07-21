@@ -97,13 +97,33 @@ Thêm một entry vào `tools-config.jsonc`:
 
 ## Tích hợp GitHub Actions
 
-Thay cho block cài opencode thủ công trước đây:
+Cache directory `.cache/` giữa các run. **Không** dùng combined `actions/cache`
+(post-if = `success()` only → job fail thì không save). Tách restore/save:
 
 ```yaml
-- name: Install opencode
-  if: always()
-  run: node scripts/runner-tools/install-tool.mjs opencode
+- name: Restore runner tools cache
+  id: cache-runner-tools
+  uses: actions/cache/restore@v5
+  with:
+    path: scripts/runner-tools/.cache
+    key: runner-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/runner-tools/tools-config.jsonc') }}
+    restore-keys: |
+      runner-tools-${{ runner.os }}-${{ runner.arch }}-
+
+- name: Install tools
+  run: node scripts/runner-tools/install-tool.mjs --all
+
+# always() so later smoke failures still warm the cache (save-always is deprecated)
+- name: Save runner tools cache
+  if: always() && steps.cache-runner-tools.outputs.cache-hit != 'true'
+  uses: actions/cache/save@v5
+  with:
+    path: scripts/runner-tools/.cache
+    key: ${{ steps.cache-runner-tools.outputs.cache-primary-key }}
 ```
 
-Không cần tự `echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"` nữa — script tự làm
-qua `pathAdd`.
+Azure Pipelines: `Cache@2` post-job save vẫn chạy khi step sau fail (không cần
+tách). Xem `.azure/azure-pipelines.yml`.
+
+Không cần tự `echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"` — script tự làm qua
+`pathAdd`.

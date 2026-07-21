@@ -60,8 +60,12 @@ jobs:
             nodesync/package-lock.json
             orchestrator/package-lock.json
 
-      - name: Cache runner tools
-        uses: actions/cache@v5
+      # Split restore/save: combined actions/cache post-if is success() only,
+      # so a later step failure would skip saving. save-always is deprecated.
+      # https://github.com/actions/cache/tree/main/save#always-save-cache
+      - name: Restore runner tools cache
+        id: cache-runner-tools
+        uses: actions/cache/restore@v5
         with:
           path: scripts/runner-tools/.cache
           key: runner-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/runner-tools/tools-config.jsonc') }}
@@ -76,6 +80,14 @@ jobs:
           npm ci --prefix orchestrator --omit=dev --loglevel=error
           node scripts/runner-tools/install-tool.mjs --all
           echo "P1 end $(date -u +%FT%T.%3NZ)"
+
+      # Save right after install so later smoke failures still warm the cache.
+      - name: Save runner tools cache
+        if: always() && steps.cache-runner-tools.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: scripts/runner-tools/.cache
+          key: ${{ steps.cache-runner-tools.outputs.cache-primary-key }}
 
       - name: P2 Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
