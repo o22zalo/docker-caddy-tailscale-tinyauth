@@ -27,7 +27,11 @@ services:
       - --url
       - http://caddy:80
     environment:
-      # Quick tunnel must not see a token (empty string can still confuse some versions)
+      # Quick tunnel must not see a token.
+      # env_file loads CF_TUNNEL_TOKEN from .env → cloudflare.yml maps it to
+      # TUNNEL_TOKEN via ${CF_TUNNEL_TOKEN:-}. Clear BOTH keys so cloudflared
+      # never sees a token when using --url (quick tunnel).
+      CF_TUNNEL_TOKEN: ""
       TUNNEL_TOKEN: ""
       TUNNEL_TOKEN_FILE: ""
       TUNNEL_TRANSPORT_PROTOCOL: http2

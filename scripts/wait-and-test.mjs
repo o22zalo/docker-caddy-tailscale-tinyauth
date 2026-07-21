@@ -131,15 +131,32 @@ if (!localOk) {
   } catch {}
 }
 
+// ── Detect actual cloudflared mode ────────────────────────────────
+// Do NOT trust CF_TUNNEL_TOKEN in .env — CI override may force --url
+// (quick tunnel) while .env still carries the token. Check the running
+// container command instead.
+function detectCloudflaredMode() {
+  try {
+    const inspect = sh(dockerCmd("inspect --format '{{.Config.Cmd}}' cloudflared"));
+    // Quick tunnel: command contains "--url" → ["tunnel","--protocol","http2","--edge-ip-version","4","--url","http://caddy:80"]
+    // Named tunnel:  ["tunnel","--no-autoupdate","run"] — no "--url"
+    if (/\burl\b/.test(inspect)) return "quick";
+    return "named";
+  } catch {
+    // Fallback: check .env token (local prod without CI override)
+    return envGet(ENV, "CF_TUNNEL_TOKEN") ? "named" : "quick";
+  }
+}
+
 // ── Discover public URL ──────────────────────────────────────────
 let publicUrl = process.env.PUBLIC_URL || "";
 
 if (!publicUrl) {
-  const tunnelToken = envGet(ENV, "CF_TUNNEL_TOKEN");
+  const actualMode = detectCloudflaredMode();
   const whoamiHost = envGet(ENV, "WHOAMI_HOST");
   const domain = envGet(ENV, "DOMAIN");
 
-  if (tunnelToken) {
+  if (actualMode === "named") {
     if (whoamiHost) {
       publicUrl = whoamiHost.replace(/^http:\/\//, "https://");
       if (!publicUrl.startsWith("https://") && !publicUrl.startsWith("http://")) {
@@ -148,7 +165,9 @@ if (!publicUrl) {
     } else if (domain) {
       publicUrl = `https://whoami.${domain}`;
     }
-    log(`==> Named tunnel mode → testing ${publicUrl || "(unset)"}`);
+    log(`==> Named tunnel mode (detected) → testing ${publicUrl || "(unset)"}`);
+  } else {
+    log("==> Quick tunnel mode (detected) — will extract trycloudflare.com URL");
   }
 }
 

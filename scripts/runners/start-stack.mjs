@@ -7,6 +7,7 @@
 //   --dry-run   Show commands without running
 //   --silent    Suppress output
 import { execSync, execFileSync, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { detectDocker } from "./_docker.mjs";
@@ -62,7 +63,19 @@ function totalElapsed() {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
-const MODE = process.env.MODE || "quick";
+
+// Detect actual mode from .env (CF_TUNNEL_TOKEN presence), not from
+// process.env.MODE which depends on GITHUB_ENV (unavailable on Azure).
+function detectMode() {
+  if (process.env.MODE) return process.env.MODE;
+  try {
+    const envContent = readFileSync(resolve(ROOT, ".env"), "utf8");
+    // dotenv-style: KEY=VALUE (no inline comment stripping needed for existence check)
+    if (/^CF_TUNNEL_TOKEN=.+/m.test(envContent)) return "named";
+  } catch {}
+  return "quick";
+}
+const MODE = detectMode();
 
 process.chdir(ROOT);
 
