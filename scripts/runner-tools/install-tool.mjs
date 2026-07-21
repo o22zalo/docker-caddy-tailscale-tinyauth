@@ -169,7 +169,9 @@ function installTool(tool) {
         mkdirSync(cacheDir, { recursive: true });
         const tmpDir = resolve(ROOT, "ci-runtime", "tool-downloads");
         mkdirSync(tmpDir, { recursive: true });
-        const archive = resolve(tmpDir, `${tool.name}-${version}.tar.gz`);
+        const isZip = url.endsWith(".zip");
+        const archiveExt = isZip ? ".zip" : ".tar.gz";
+        const archive = resolve(tmpDir, `${tool.name}-${version}${archiveExt}`);
 
         log(`downloading ${url}`);
         const dl = shell(`curl -fsSL -o ${JSON.stringify(archive)} ${JSON.stringify(url)}`);
@@ -179,7 +181,10 @@ function installTool(tool) {
           continue;
         }
 
-        const ext = shell(`tar xzf ${JSON.stringify(archive)} -C ${JSON.stringify(cacheDir)} --strip-components=0`);
+        const extractCmd = isZip
+          ? `unzip -o ${JSON.stringify(archive)} -d ${JSON.stringify(cacheDir)}`
+          : `tar xzf ${JSON.stringify(archive)} -C ${JSON.stringify(cacheDir)} --strip-components=0`;
+        const ext = shell(extractCmd);
         shell(`rm -f ${JSON.stringify(archive)}`);
         if (!ext.ok) {
           warn(`extract failed: ${ext.err}`);
