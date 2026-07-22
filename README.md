@@ -318,6 +318,16 @@ Workflow: `.github/workflows/test.yml`
 
 **Full production-like secret:** put a complete root `.env` in `ENV_FILE` (including `CF_TUNNEL_TOKEN`, public `TINYAUTH_APPURL`, `WHOAMI_HOST`, hostnames on the Cloudflare tunnel). With default whoami auth off, smoke success is typically **200**; with `WHOAMI_TINYAUTH_ENABLED=true`, success may be **302** (redirect to login) or **401**.
 
+### Keep-alive self-dispatch
+
+`P7 Keep-alive heartbeat` keeps the stack reachable during the current run.
+`P7 Self-dispatch next run` calls GitHub `workflow_dispatch` near the end so the
+same workflow can continue later. Deploy notes live in
+`docs/deploys/runner-cronjob.md`; channel API notes live in
+`scripts/runner-cronjob/*.api.md`.
+Use `CRONJON_NEXT_RUN_ENABLE` and `CRONJON_NEXT_RUN_MINUTES` for the next-run
+gate; runner-cronjob reports are written under `ci-logs/` for the artifact.
+
 ## Multi-file compose without `include`
 
 ```bash

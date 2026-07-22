@@ -1,0 +1,14 @@
+{
+  // GitHub REST API version for workflow_dispatch.
+  "github_api_version": "2022-11-28",
+  "next_run_minutes": 58,
+
+  // External cron providers are opt-in by env flags.
+  "channels": {
+    "cronjoborg": { "minute": 0 },
+    "easycron": { "cron_expression": "0 * * * *", "timeout": 0 },
+    "fastcron": { "expression": "0 * * * *", "timeout": 30 },
+    "qstash": { "cron": "0 * * * *" },
+    "webhook": {}
+  }
+}
