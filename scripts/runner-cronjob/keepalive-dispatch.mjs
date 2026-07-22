@@ -27,9 +27,32 @@ const log = (...a) => {
   rows.push(msg);
   if (!SILENT) console.log(msg);
 };
+let cachedEventInputs = null;
+function getEventInputs() {
+  if (cachedEventInputs !== null) return cachedEventInputs;
+  cachedEventInputs = {};
+  const eventPath = process.env.GITHUB_EVENT_PATH;
+  if (eventPath && existsSync(eventPath)) {
+    try {
+      cachedEventInputs = JSON.parse(readFileSync(eventPath, "utf8")).inputs || {};
+    } catch {}
+  }
+  return cachedEventInputs;
+}
+
 const fileEnv = parseEnv(resolve(ROOT, ".env"));
 const env = (key, fallback = "") => {
-  const value = fileEnv[key] || process.env[key];
+  let eventVal = undefined;
+  const inputs = getEventInputs();
+  if (key === "CRONJOB_NEXT_RUN_ENABLE" || key === "CRONJON_NEXT_RUN_ENABLE") {
+    eventVal = inputs.next_run_enable;
+  } else if (key === "CRONJOB_NEXT_RUN_MINUTES" || key === "CRONJON_NEXT_RUN_MINUTES") {
+    eventVal = inputs.next_run_minutes;
+  } else if (key === "CRONJOB_RUN_GROUP") {
+    eventVal = inputs.run_group;
+  }
+  
+  const value = eventVal !== undefined ? eventVal : (fileEnv[key] || process.env[key]);
   if (!value || /^\$\([^)]+\)$/.test(value)) return fallback;
   return value;
 };

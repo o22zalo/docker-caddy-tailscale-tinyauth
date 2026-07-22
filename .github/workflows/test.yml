@@ -125,7 +125,6 @@ jobs:
 
       - name: P3 Setup environment
         env:
-          ENV_FILE: ${{ secrets.ENV_FILE }}
           DOTENVRTDB_URL: ${{ secrets.DOTENVRTDB_URL }}
         run: |
           date -u '+P3 start %FT%T.%3NZ'
@@ -166,28 +165,6 @@ jobs:
 
       - name: P7 Self-dispatch next run
         if: always() && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          CRONJOB_RUN_GROUP: ${{ github.event.inputs.run_group || format('{0}-{1}', github.workflow, github.ref_name) }}
-          CRONJOB_NEXT_RUN_ENABLE: ${{ github.event.inputs.next_run_enable || vars.CRONJOB_NEXT_RUN_ENABLE || 'true' }}
-          CRONJOB_NEXT_RUN_MINUTES: ${{ github.event.inputs.next_run_minutes || vars.CRONJOB_NEXT_RUN_MINUTES || '58' }}
-          CRONJOB_DISPATCH_PAT: ${{ secrets.CRONJOB_DISPATCH_PAT }}
-          CRONJOB_CRONJOBORG_ENABLE: ${{ vars.CRONJOB_CRONJOBORG_ENABLE || '' }}
-          CRONJOB_CRONJOBORG_API_KEY: ${{ secrets.CRONJOB_CRONJOBORG_API_KEY }}
-          CRONJOB_CRONJOBORG_MINUTE: ${{ vars.CRONJOB_CRONJOBORG_MINUTE || '0' }}
-          CRONJOB_EASYCRON_ENABLE: ${{ vars.CRONJOB_EASYCRON_ENABLE || '' }}
-          CRONJOB_EASYCRON_API_KEY: ${{ secrets.CRONJOB_EASYCRON_API_KEY }}
-          CRONJOB_EASYCRON_CRON: ${{ vars.CRONJOB_EASYCRON_CRON || '0 * * * *' }}
-          CRONJOB_FASTCRON_ENABLE: ${{ vars.CRONJOB_FASTCRON_ENABLE || '' }}
-          CRONJOB_FASTCRON_TOKEN: ${{ secrets.CRONJOB_FASTCRON_TOKEN }}
-          CRONJOB_FASTCRON_EXPRESSION: ${{ vars.CRONJOB_FASTCRON_EXPRESSION || '0 * * * *' }}
-          CRONJOB_QSTASH_ENABLE: ${{ vars.CRONJOB_QSTASH_ENABLE || '' }}
-          CRONJOB_QSTASH_TOKEN: ${{ secrets.CRONJOB_QSTASH_TOKEN }}
-          CRONJOB_QSTASH_CRON: ${{ vars.CRONJOB_QSTASH_CRON || '0 * * * *' }}
-          CRONJOB_QSTASH_SCHEDULE_ID: ${{ vars.CRONJOB_QSTASH_SCHEDULE_ID || format('gh-keepalive-{0}-{1}', github.workflow, github.ref_name) }}
-          CRONJOB_WEBHOOK_ENABLE: ${{ vars.CRONJOB_WEBHOOK_ENABLE || '' }}
-          CRONJOB_WEBHOOK_URL: ${{ vars.CRONJOB_WEBHOOK_URL || '' }}
-          CRONJOB_WEBHOOK_TOKEN: ${{ secrets.CRONJOB_WEBHOOK_TOKEN }}
         run: node scripts/runner-cronjob/keepalive-dispatch.mjs
 
       - name: P8 Collect logs
