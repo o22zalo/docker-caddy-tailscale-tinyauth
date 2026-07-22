@@ -6,6 +6,8 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import bcryptjs from "bcryptjs";
 
+import { maskCiSecret, exportCiVar } from "../lib/env-utils.mjs";
+
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
 const SILENT = args.includes("--silent");
@@ -14,7 +16,6 @@ const log = (...a) => { if (!SILENT) console.log(...a); };
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
 const ENV = resolve(ROOT, ".env");
-const GITHUB_ENV = process.env.GITHUB_ENV;
 const username = "ci-bot";
 const password = randomBytes(18).toString("base64url");
 // Each real "$" in the bcrypt hash must survive TWO rounds of docker-compose
@@ -39,18 +40,6 @@ const users = current.split(",")
   });
 const next = [...users, `${username}:${hash}`].join(",");
 
-function githubMask(value) {
-  if (process.env.GITHUB_ACTIONS && value) console.log(`::add-mask::${value}`);
-}
-
-function azureMask(value) {
-  if (process.env.TF_BUILD && value) console.log(`##vso[task.setsecret]${value}`);
-}
-
-function azureVar(key, value, secret = false) {
-  if (process.env.TF_BUILD && value) console.log(`##vso[task.setvariable variable=${key};issecret=${secret ? "true" : "false"}]${value}`);
-}
-
 function authSummary(label, value) {
   const names = value.split(",").map((entry) => entry.split(":")[0]).filter(Boolean).join(",");
   const sample = value.replace(/:[^,]+/g, ":<hash>").slice(0, 120);
@@ -71,11 +60,8 @@ if (!DRY_RUN) {
   }
   src += `TINYAUTH_CI_USER=${username}\nTINYAUTH_CI_PASSWORD=${password}\n`;
   writeFileSync(ENV, src);
-  githubMask(password);
-  azureMask(password);
-  azureVar("TINYAUTH_CI_USER", username);
-  azureVar("TINYAUTH_CI_PASSWORD", password, true);
-  if (GITHUB_ENV) appendFileSync(GITHUB_ENV, `TINYAUTH_CI_USER=${username}\nTINYAUTH_CI_PASSWORD=${password}\n`);
+  maskCiSecret(password);
+  exportCiVar("TINYAUTH_CI_USER", username);
 }
 
 authSummary("TINYAUTH_AUTH_USERS after", next);

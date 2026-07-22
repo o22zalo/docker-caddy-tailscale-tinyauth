@@ -7,7 +7,7 @@ import { dirname, resolve } from "node:path";
 import { Writable } from "node:stream";
 import readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
-import { parseEnv } from "../../scripts/lib/env-utils.mjs";
+import { maskCiSecret, exportCiVar, parseEnv } from "../../scripts/lib/env-utils.mjs";
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),"../..");
 const args=process.argv.slice(2), dry=args.includes("--dry-run");
@@ -21,9 +21,7 @@ const fileEnv=existsSync(ENV)?parseEnv(ENV):{}, env={...Object.fromEntries(Objec
 const generated=new Map();
 
 function mask(value){
- if(!value)return;
- if(process.env.GITHUB_ACTIONS==="true") console.log(`::add-mask::${value}`);
- if(process.env.TF_BUILD==="True") console.log(`##vso[task.setsecret]${value}`);
+ maskCiSecret(value);
 }
 function set(key,value,{secret=false}={}){
  key=key.toUpperCase(); value=String(value??""); env[key]=value; generated.set(key,value);
@@ -48,8 +46,7 @@ function writePrefix(prefix){
  writeFileSync(ENV,content,{mode:0o600});
 }
 function exportPublic(key,value){
- if(process.env.GITHUB_ENV)appendFileSync(process.env.GITHUB_ENV,`${key}=${value}\n`);
- if(process.env.TF_BUILD==="True")console.log(`##vso[task.setvariable variable=${key}]${value}`);
+ exportCiVar(key,value);
 }
 async function ask(question,{secret=false,required=false}={}){
  while(true){

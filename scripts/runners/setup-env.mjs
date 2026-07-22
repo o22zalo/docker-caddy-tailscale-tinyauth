@@ -13,7 +13,7 @@ import { execSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
-import { envGet, envHasKey, envKeys, parseEnv } from "../lib/env-utils.mjs";
+import { envGet, envHasKey, envKeys, exportCiVar, parseEnv } from "../lib/env-utils.mjs";
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
@@ -24,12 +24,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
 const ENV = resolve(ROOT, ".env");
 const ENV_CI = resolve(ROOT, ".env.ci");
-const GITHUB_ENV = process.env.GITHUB_ENV;
 const GITHUB_STEP_SUMMARY = process.env.GITHUB_STEP_SUMMARY;
 const ENV_FILE = process.env.ENV_FILE || "";
 
 function appendEnv(key, val) {
-  if (!DRY_RUN && GITHUB_ENV) appendFileSync(GITHUB_ENV, `${key}=${val}\n`);
+  if (!DRY_RUN) exportCiVar(key, val);
   log(`[env] ${key}=${val}`);
 }
 

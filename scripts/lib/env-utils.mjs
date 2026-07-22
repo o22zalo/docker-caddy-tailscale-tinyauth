@@ -14,7 +14,7 @@
 //
 // After parsing, values are expanded: ${VAR} and $VAR references are resolved
 // from the same .env (matching Docker Compose variable substitution behavior).
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import dotenv from "dotenv";
 
 /**
@@ -83,4 +83,36 @@ export function envHasKey(filePath, key) {
 export function envKeys(filePath) {
   if (!existsSync(filePath)) return [];
   return Object.keys(dotenv.parse(readFileSync(filePath, "utf8")));
+}
+
+/**
+ * Mask a secret value across CI platforms (GitHub Actions & Azure Pipelines).
+ */
+export function maskCiSecret(value) {
+  if (!value) return;
+  if (process.env.GITHUB_ACTIONS) {
+    console.log(`::add-mask::${value}`);
+  }
+  if (process.env.TF_BUILD === "True" || process.env.TF_BUILD === "true" || process.env.BUILD_BUILDID) {
+    console.log(`##vso[task.setsecret]${value}`);
+  }
+}
+
+/**
+ * Export an environment variable to the CI runner environment (GitHub Actions & Azure Pipelines).
+ * Automatically masks secrets before exporting if secret option is true.
+ */
+export function exportCiVar(key, value, { secret = false } = {}) {
+  if (value === undefined || value === null) return;
+  const strVal = String(value);
+  if (secret) {
+    maskCiSecret(strVal);
+  }
+  const githubEnv = process.env.GITHUB_ENV;
+  if (githubEnv) {
+    appendFileSync(githubEnv, `${key}=${strVal}\n`);
+  }
+  if (process.env.TF_BUILD === "True" || process.env.TF_BUILD === "true" || process.env.BUILD_BUILDID) {
+    console.log(`##vso[task.setvariable variable=${key};issecret=${secret ? "true" : "false"}]${strVal}`);
+  }
 }

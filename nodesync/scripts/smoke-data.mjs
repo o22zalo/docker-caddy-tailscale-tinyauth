@@ -3,7 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseEnv } from "../../scripts/lib/env-utils.mjs";
+import { exportCiVar, parseEnv } from "../../scripts/lib/env-utils.mjs";
 
 const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),"../..");
 const args=process.argv.slice(2), envArg=args.indexOf("--env");
@@ -19,8 +19,7 @@ function setEnv(key,value){
  let src=existsSync(envFile)?readFileSync(envFile,"utf8"):""; const line=`${key}=${value}`;
  src=new RegExp(`^${key}=.*$`,"m").test(src)?src.replace(new RegExp(`^${key}=.*$`,"m"),line):src.trimEnd()+`\n${line}\n`;
  writeFileSync(envFile,src);
- if(process.env.GITHUB_ENV)appendFileSync(process.env.GITHUB_ENV,`${line}\n`);
- if(process.env.TF_BUILD==="True")console.log(`##vso[task.setvariable variable=${key}]${value}`);
+ exportCiVar(key,value);
 }
 mkdirSync(resolve(dir,"files"),{recursive:true});mkdirSync(resolve(dir,"tree/a/b"),{recursive:true});
 const createdAt=new Date().toISOString(), node=process.env.ORCH_NODE_ID||process.env.GITHUB_RUN_ID||process.env.BUILD_BUILDID||"local";

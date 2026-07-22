@@ -103,15 +103,17 @@ if (!action || !["key", "env", "restore", "save"].includes(action)) {
   process.exit(1);
 }
 
+import { exportCiVar } from "../lib/env-utils.mjs";
+
 if (action === "key") {
   log(key);
   process.exit(0);
 }
 
 if (action === "env") {
-  const envFile = process.env.GITHUB_ENV;
-  if (envFile && !DRY_RUN) {
-    appendFileSync(envFile, `DOCKER_CACHE_KEY=${key}\nDOCKER_CACHE_PATH=${TAR_PATH}\n`);
+  if (!DRY_RUN) {
+    exportCiVar("DOCKER_CACHE_KEY", key);
+    exportCiVar("DOCKER_CACHE_PATH", TAR_PATH);
   }
   log(`DOCKER_CACHE_KEY=${key}`);
   log(`DOCKER_CACHE_PATH=${TAR_PATH}`);
