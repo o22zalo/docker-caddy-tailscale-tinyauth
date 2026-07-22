@@ -53,9 +53,9 @@ target workflow. In GitHub Actions these fall back to the current workflow.
 `CRONJOB_RUN_GROUP`: shared concurrency group. Keep this identical for
 self-dispatch and external channels.
 
-`CRONJON_NEXT_RUN_ENABLE`: controls next-run dispatch. Empty value means enabled.
+`CRONJOB_NEXT_RUN_ENABLE`: controls next-run dispatch. Empty value means enabled.
 Accepted truthy values include `true`, `1`, `yes`, and `on`.
 
-`CRONJON_NEXT_RUN_MINUTES`: expected workflow lifetime in minutes. The script
-uses `ci-logs/runner-cronjob-started-at.txt + CRONJON_NEXT_RUN_MINUTES` to decide
+`CRONJOB_NEXT_RUN_MINUTES`: expected workflow lifetime in minutes. The script
+uses `ci-logs/runner-cronjob-started-at.txt + CRONJOB_NEXT_RUN_MINUTES` to decide
 when dispatch is allowed.

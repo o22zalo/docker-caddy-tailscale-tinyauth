@@ -57,9 +57,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: P1 Mark workflow start
-        run: node scripts/runner-cronjob/keepalive-dispatch.mjs --mark-start
-
       - name: P1 Setup Node with cache
         uses: actions/setup-node@v7
         with:
@@ -90,6 +87,9 @@ jobs:
           npm ci --prefix orchestrator --omit=dev --loglevel=error
           node scripts/runner-tools/install-tool.mjs --all
           date -u '+P1 end %FT%T.%3NZ'
+
+      - name: P1 Mark workflow start
+        run: node scripts/runner-cronjob/keepalive-dispatch.mjs --mark-start
 
       # Save right after install so later smoke failures still warm the cache.
       - name: Save runner tools cache
@@ -157,10 +157,10 @@ jobs:
 
       - name: P7 Keep-alive heartbeat
         if: |
-          (github.event_name == 'push' && vars.CRONJON_NEXT_RUN_ENABLE != 'false' && vars.CRONJON_NEXT_RUN_ENABLE != '0') ||
+          (github.event_name == 'push' && vars.CRONJOB_NEXT_RUN_ENABLE != 'false' && vars.CRONJOB_NEXT_RUN_ENABLE != '0') ||
           (github.event_name == 'workflow_dispatch' && github.event.inputs.next_run_enable != 'false' && github.event.inputs.next_run_enable != '0')
         env:
-          KEEP_MIN: ${{ github.event.inputs.next_run_minutes || vars.CRONJON_NEXT_RUN_MINUTES || '58' }}
+          KEEP_MIN: ${{ github.event.inputs.next_run_minutes || vars.CRONJOB_NEXT_RUN_MINUTES || '58' }}
           KEEP_INTERVAL_SECONDS: "30"
         run: node scripts/runners/keep-alive.mjs
 
@@ -169,8 +169,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           CRONJOB_RUN_GROUP: ${{ github.event.inputs.run_group || format('{0}-{1}', github.workflow, github.ref_name) }}
-          CRONJON_NEXT_RUN_ENABLE: ${{ github.event.inputs.next_run_enable || vars.CRONJON_NEXT_RUN_ENABLE || 'true' }}
-          CRONJON_NEXT_RUN_MINUTES: ${{ github.event.inputs.next_run_minutes || vars.CRONJON_NEXT_RUN_MINUTES || '58' }}
+          CRONJOB_NEXT_RUN_ENABLE: ${{ github.event.inputs.next_run_enable || vars.CRONJOB_NEXT_RUN_ENABLE || 'true' }}
+          CRONJOB_NEXT_RUN_MINUTES: ${{ github.event.inputs.next_run_minutes || vars.CRONJOB_NEXT_RUN_MINUTES || '58' }}
           CRONJOB_DISPATCH_PAT: ${{ secrets.CRONJOB_DISPATCH_PAT }}
           CRONJOB_CRONJOBORG_ENABLE: ${{ vars.CRONJOB_CRONJOBORG_ENABLE || '' }}
           CRONJOB_CRONJOBORG_API_KEY: ${{ secrets.CRONJOB_CRONJOBORG_API_KEY }}

@@ -325,7 +325,7 @@ Workflow: `.github/workflows/test.yml`
 same workflow can continue later. Deploy notes live in
 `docs/deploys/runner-cronjob.md`; channel API notes live in
 `scripts/runner-cronjob/*.api.md`.
-Use `CRONJON_NEXT_RUN_ENABLE` and `CRONJON_NEXT_RUN_MINUTES` for the next-run
+Use `CRONJOB_NEXT_RUN_ENABLE` and `CRONJOB_NEXT_RUN_MINUTES` for the next-run
 gate; runner-cronjob reports are written under `ci-logs/` for the artifact.
 
 ## Multi-file compose without `include`

@@ -65,11 +65,12 @@ function currentRunStartedAt() {
 }
 
 function nextRunPlan() {
-  const minutes = num(env("CRONJON_NEXT_RUN_MINUTES"), config().next_run_minutes);
+  const minutes = num(env("CRONJOB_NEXT_RUN_MINUTES", env("CRONJON_NEXT_RUN_MINUTES")), config().next_run_minutes);
   const start = currentRunStartedAt();
   const dispatchAt = new Date(start.getTime() + minutes * 60_000);
   const now = new Date();
-  return { enabled: boolDefaultTrue(process.env.CRONJON_NEXT_RUN_ENABLE), minutes, start, dispatchAt, now, allowed: now >= dispatchAt };
+  const enabledRaw = process.env.CRONJOB_NEXT_RUN_ENABLE ?? process.env.CRONJON_NEXT_RUN_ENABLE;
+  return { enabled: boolDefaultTrue(enabledRaw), minutes, start, dispatchAt, now, allowed: now >= dispatchAt };
 }
 
 async function httpJson(name, url, { method = "POST", headers = {}, body } = {}) {
@@ -97,12 +98,13 @@ async function githubJson(name, url, token, body) {
 }
 
 function dispatchBody(ctx) {
+  const enabledRaw = process.env.CRONJOB_NEXT_RUN_ENABLE ?? process.env.CRONJON_NEXT_RUN_ENABLE;
   return {
     ref: env("CRONJOB_REF", ctx.ref),
     inputs: {
       run_group: env("CRONJOB_RUN_GROUP", ctx.runGroup),
-      next_run_enable: String(boolDefaultTrue(process.env.CRONJON_NEXT_RUN_ENABLE)),
-      next_run_minutes: String(num(env("CRONJON_NEXT_RUN_MINUTES"), config().next_run_minutes)),
+      next_run_enable: String(boolDefaultTrue(enabledRaw)),
+      next_run_minutes: String(num(env("CRONJOB_NEXT_RUN_MINUTES", env("CRONJON_NEXT_RUN_MINUTES")), config().next_run_minutes)),
     },
   };
 }
@@ -252,15 +254,16 @@ function writeReport(report) {
 function markStart() {
   mkdirSync(dirname(START_FILE), { recursive: true });
   const value = new Date().toISOString();
-  const minutes = num(env("CRONJON_NEXT_RUN_MINUTES"), config().next_run_minutes);
+  const minutes = num(env("CRONJOB_NEXT_RUN_MINUTES", env("CRONJON_NEXT_RUN_MINUTES")), config().next_run_minutes);
   const dispatchAllowedAt = new Date(new Date(value).getTime() + minutes * 60_000).toISOString();
+  const enabledRaw = process.env.CRONJOB_NEXT_RUN_ENABLE ?? process.env.CRONJON_NEXT_RUN_ENABLE;
   const report = {
     action: "mark-start",
     dryRun: DRY_RUN,
     startFile: START_FILE,
     wouldWrite: value,
     nextRun: {
-      enabled: boolDefaultTrue(process.env.CRONJON_NEXT_RUN_ENABLE),
+      enabled: boolDefaultTrue(enabledRaw),
       minutes,
       dispatchAllowedAt,
       behavior: "Later dispatch step will run channels only after this timestamp.",
@@ -294,7 +297,7 @@ log("[plan]", {
 if (ctx.provider !== "github" && !env("CRONJOB_OWNER")) {
   log(`[provider] ${ctx.provider}; no CRONJOB_OWNER, skip.`);
 } else if (!plan.enabled) {
-  log("[next-run] disabled by CRONJON_NEXT_RUN_ENABLE.");
+  log("[next-run] disabled by CRONJOB_NEXT_RUN_ENABLE.");
 } else if (!plan.allowed) {
   log("[next-run] not time yet; skip dispatch.");
 } else {

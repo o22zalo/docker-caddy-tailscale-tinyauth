@@ -7,8 +7,8 @@
 2. Run hiện tại giữ stack sống bằng `scripts/runners/keep-alive.mjs`.
 3. Step riêng `P7 Self-dispatch next run` luôn chạy với `always()`, kể cả khi
    build/smoke test trước đó lỗi.
-4. Script tính `startedAt + CRONJON_NEXT_RUN_MINUTES`.
-5. Nếu đã tới mốc và `CRONJON_NEXT_RUN_ENABLE` bật, script gọi GitHub
+4. Script tính `startedAt + CRONJOB_NEXT_RUN_MINUTES`.
+5. Nếu đã tới mốc và `CRONJOB_NEXT_RUN_ENABLE` bật, script gọi GitHub
    `workflow_dispatch` và các channel ngoài nào có cấu hình.
 6. Log chi tiết ghi vào `ci-logs/runner-cronjob.log` và
    `ci-logs/runner-cronjob-report.json`, rồi được upload cùng artifact CI.
@@ -55,7 +55,7 @@ flowchart TD
   G --> I[P7 Self-dispatch next run always]
   H --> I
   E -->|step trước lỗi| I
-  I --> J[tạo env CRONJON_NEXT_RUN_* và CRONJOB_*]
+  I --> J[tạo env CRONJOB_NEXT_RUN_* và CRONJOB_*]
   J --> K[chạy scripts/runner-cronjob/keepalive-dispatch.mjs]
   K --> L[tính dispatchAllowedAt = currentRunStartedAt + nextRunMinutes]
   L --> M{next-run enabled và đã tới giờ?}
@@ -80,16 +80,16 @@ flowchart TD
 
 | Env | Nguồn | Tác dụng |
 | --- | --- | --- |
-| `CRONJON_NEXT_RUN_ENABLE` | input/vars, default `true` | bật/tắt dispatch run kế tiếp |
-| `CRONJON_NEXT_RUN_MINUTES` | input/vars, default `58` | số phút dự kiến của 1 workflow |
+| `CRONJOB_NEXT_RUN_ENABLE` | input/vars, default `true` | bật/tắt dispatch run kế tiếp |
+| `CRONJOB_NEXT_RUN_MINUTES` | input/vars, default `58` | số phút dự kiến của 1 workflow |
 | `GITHUB_TOKEN` | `${{ github.token }}` | token self-dispatch trên GitHub |
 | `CRONJOB_RUN_GROUP` | input hoặc workflow/ref default | concurrency group truyền sang run kế tiếp |
 | `CRONJOB_DISPATCH_PAT` | secret | PAT cho channel ngoài gọi GitHub |
 | `CRONJOB_*_ENABLE` | vars, optional | bật/tắt từng channel ngoài |
 | token/API key từng channel | secrets | xác thực với dịch vụ ngoài |
-| lịch từng channel | vars | lịch chạy của dịch vụ ngoài |
+| lịch từng channel | vars | lịch từng channel |
 
-`CRONJON_NEXT_RUN_ENABLE` nhận `true/false/1/0/yes/no/on/off`. Nếu không set
+`CRONJOB_NEXT_RUN_ENABLE` nhận `true/false/1/0/yes/no/on/off`. Nếu không set
 hoặc rỗng thì mặc định là bật.
 
 ## Xử Lý Trong Script
@@ -102,10 +102,10 @@ hoặc rỗng thì mặc định là bật.
 4. Tính plan:
    - `currentRunStartedAt` từ `ci-logs/runner-cronjob-started-at.txt`, file này
      được tạo bởi `keepalive-dispatch.mjs --mark-start`
-   - `nextRunMinutes` từ `CRONJON_NEXT_RUN_MINUTES`, default `58`
+   - `nextRunMinutes` từ `CRONJOB_NEXT_RUN_MINUTES`, default `58`
    - `dispatchAllowedAt = currentRunStartedAt + nextRunMinutes`
    - `allowedNow = now >= dispatchAllowedAt`
-5. Nếu `CRONJON_NEXT_RUN_ENABLE=false/0/no/off`, log skip và ghi report.
+5. Nếu `CRONJOB_NEXT_RUN_ENABLE=false/0/no/off`, log skip và ghi report.
 6. Nếu chưa tới `dispatchAllowedAt`, log skip và ghi report.
 7. Nếu được phép, chạy từng channel độc lập. Channel có token/API env sẽ chạy;
    đặt `CRONJOB_<CHANNEL>_ENABLE=false` hoặc `0` để tắt hẳn. Channel này lỗi không chặn channel
@@ -169,15 +169,15 @@ Generic webhook:
 ## Env Tối Thiểu
 
 ```env
-CRONJON_NEXT_RUN_ENABLE=true
-CRONJON_NEXT_RUN_MINUTES=58
+CRONJOB_NEXT_RUN_ENABLE=true
+CRONJOB_NEXT_RUN_MINUTES=58
 ```
 
 Dự phòng bằng cron-job.org:
 
 ```env
-CRONJON_NEXT_RUN_ENABLE=true
-CRONJON_NEXT_RUN_MINUTES=58
+CRONJOB_NEXT_RUN_ENABLE=true
+CRONJOB_NEXT_RUN_MINUTES=58
 CRONJOB_DISPATCH_PAT=github_pat_xxx
 CRONJOB_CRONJOBORG_ENABLE=true
 CRONJOB_CRONJOBORG_API_KEY=xxx
