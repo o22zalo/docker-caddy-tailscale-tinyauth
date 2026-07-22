@@ -115,6 +115,86 @@ function dispatchBody(ctx) {
   };
 }
 
+function isHourAllowed(hoursStr, currentHour) {
+  if (!hoursStr) return true;
+  const cleaned = hoursStr.replace(/\s+/g, "");
+  
+  if (cleaned.includes(",")) {
+    const list = cleaned.split(",").map(Number).filter((h) => !Number.isNaN(h));
+    return list.includes(currentHour);
+  }
+  
+  if (cleaned.includes("-")) {
+    const parts = cleaned.split("-").map(Number);
+    if (parts.length === 2 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1])) {
+      const start = parts[0];
+      const end = parts[1];
+      if (start <= end) {
+        return currentHour >= start && currentHour < end;
+      } else {
+        return currentHour >= start || currentHour < end;
+      }
+    }
+  }
+  
+  const single = Number(cleaned);
+  if (!Number.isNaN(single)) {
+    return currentHour === single;
+  }
+  
+  return true;
+}
+
+function getIndexedRepositories(ctx) {
+  const list = [];
+  let i = 1;
+  while (true) {
+    const name = env(`CRONJOB_REPO_${i}_NAME`);
+    if (!name) break;
+    const owner = env(`CRONJOB_REPO_${i}_OWNER`, env("CRONJOB_OWNER", env("CRONJOB_ORG", ctx.owner)));
+    const workflow = env(`CRONJOB_REPO_${i}_WORKFLOW`, env("CRONJOB_WORKFLOW", ctx.workflow));
+    const ref = env(`CRONJOB_REPO_${i}_REF`, env("CRONJOB_REF", ctx.ref));
+    const pat = env(`CRONJOB_REPO_${i}_PAT`, env("CRONJOB_GITHUB_TOKEN", env("CRONJOB_DISPATCH_PAT", env("GITHUB_TOKEN", env("SYSTEM_ACCESSTOKEN", env("AZURE_DEVOPS_PAT"))))));
+    const hours = env(`CRONJOB_REPO_${i}_HOURS`);
+    list.push({ index: i, name, owner, workflow, ref, pat, hours });
+    i++;
+  }
+  return list;
+}
+
+function getDispatchRepositories(ctx) {
+  const indexed = getIndexedRepositories(ctx);
+  if (indexed.length > 0) return indexed;
+  
+  const name = env("CRONJOB_REPO", ctx.repo);
+  const owner = env("CRONJOB_OWNER", env("CRONJOB_ORG", ctx.owner));
+  const workflow = env("CRONJOB_WORKFLOW", ctx.workflow);
+  const ref = env("CRONJOB_REF", ctx.ref);
+  const pat = env("CRONJOB_GITHUB_TOKEN") || env("CRONJOB_DISPATCH_PAT") || env("GITHUB_TOKEN") || env("SYSTEM_ACCESSTOKEN") || env("AZURE_DEVOPS_PAT") || "";
+  const hours = env("CRONJOB_HOURS");
+  return [{ index: 0, name, owner, workflow, ref, pat, hours }];
+}
+
+function showCronjobEnv() {
+  const allKeys = new Set([
+    ...Object.keys(fileEnv),
+    ...Object.keys(process.env)
+  ]);
+  const cronjobKeys = [...allKeys]
+    .filter((k) => k.startsWith("CRONJOB_") || k.startsWith("CRONJON_"))
+    .sort();
+
+  log("--- CRONJOB Environment Variables ---");
+  for (const k of cronjobKeys) {
+    const rawVal = fileEnv[k] || process.env[k];
+    if (rawVal === undefined) continue;
+    const isSecret = /(TOKEN|SECRET|PASSWORD|PASS|AUTH|KEY|PAT|API)/i.test(k);
+    const masked = isSecret ? "*".repeat(Math.min(8, rawVal.length)) : rawVal;
+    log(`env:${k} = ${masked} (${rawVal.length} characters)`);
+  }
+  log("-------------------------------------");
+}
+
 function githubUrl(ctx) {
   const owner = env("CRONJOB_OWNER", env("CRONJOB_ORG", ctx.owner));
   const repo = env("CRONJOB_REPO", ctx.repo);
@@ -123,9 +203,50 @@ function githubUrl(ctx) {
 }
 
 async function selfDispatch(ctx) {
-  const token = env("CRONJOB_GITHUB_TOKEN") || env("CRONJOB_DISPATCH_PAT") || env("GITHUB_TOKEN") || env("SYSTEM_ACCESSTOKEN") || env("AZURE_DEVOPS_PAT") || "";
-  if (!token) throw new Error("Missing CRONJOB_GITHUB_TOKEN / CRONJOB_DISPATCH_PAT / GITHUB_TOKEN / Azure System.AccessToken.");
-  return githubJson("github:dispatch", githubUrl(ctx), token, dispatchBody(ctx));
+  const repos = getDispatchRepositories(ctx);
+  const tz = env("CRONJOB_TZ", "Asia/Bangkok");
+  const formatter = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hour12: false });
+  const localHour = Number(formatter.format(new Date())) % 24;
+  
+  const dispatches = [];
+  for (const repo of repos) {
+    const label = repo.index > 0 ? `repo #${repo.index} (${repo.owner}/${repo.name})` : `default repo (${repo.owner}/${repo.name})`;
+    if (!repo.pat) {
+      dispatches.push({ name: label, ok: false, status: "error", error: "Missing dispatch token." });
+      log(`[github:dispatch] ${label} failed: Missing dispatch token.`);
+      continue;
+    }
+    
+    const allowed = isHourAllowed(repo.hours, localHour);
+    log(`[github:dispatch] ${label} checking hours range [${repo.hours || "any"}] vs current hour [${localHour}h]: ${allowed ? "ALLOWED" : "SKIPPED"}`);
+    
+    if (!allowed) {
+      dispatches.push({ name: label, ok: null, status: "skipped", reason: `Hour ${localHour}h not in range ${repo.hours}` });
+      continue;
+    }
+    
+    const url = `${env("CRONJOB_GITHUB_API", ctx.apiBase)}/repos/${repo.owner}/${repo.name}/actions/workflows/${encodeURIComponent(repo.workflow)}/dispatches`;
+    const body = {
+      ref: repo.ref,
+      inputs: {
+        run_group: env("CRONJOB_RUN_GROUP", ctx.runGroup),
+        next_run_enable: String(boolDefaultTrue(env("CRONJOB_NEXT_RUN_ENABLE", env("CRONJON_NEXT_RUN_ENABLE")))),
+        next_run_minutes: String(num(env("CRONJOB_NEXT_RUN_MINUTES", env("CRONJON_NEXT_RUN_MINUTES")), config().next_run_minutes)),
+      },
+    };
+    
+    try {
+      const res = await githubJson(`github:dispatch:${repo.owner}/${repo.name}`, url, repo.pat, body);
+      dispatches.push({ name: label, ok: res.ok, status: res.status, response: redact(res.text || "") });
+    } catch (e) {
+      log(`[github:dispatch] ${label} error`, e.stack || e.message);
+      dispatches.push({ name: label, ok: false, status: "error", error: redact(e.message) });
+    }
+  }
+  
+  const failed = dispatches.filter((d) => d.ok === false).length;
+  const text = JSON.stringify(dispatches);
+  return { ok: failed === 0, status: failed > 0 ? "error" : "success", text };
 }
 
 function dispatchHeaders() {
@@ -280,11 +401,12 @@ function markStart() {
   if (!DRY_RUN) writeFileSync(START_FILE, `${value}\n`);
   writeReport(report);
 }
-
 if (MARK_START) {
   markStart();
   process.exit(0);
 }
+
+showCronjobEnv();
 
 const ctx = workflowContext();
 const plan = nextRunPlan();
