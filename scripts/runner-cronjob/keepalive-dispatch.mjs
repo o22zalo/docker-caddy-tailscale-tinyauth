@@ -218,6 +218,17 @@ function showCronjobEnv() {
   log("-------------------------------------");
 }
 
+function channelPlan() {
+  return {
+    github: true,
+    cronjoborg: channelConfigured("CRONJOB_CRONJOBORG_ENABLE", ["CRONJOB_CRONJOBORG_API_KEY"]),
+    easycron: channelConfigured("CRONJOB_EASYCRON_ENABLE", ["CRONJOB_EASYCRON_API_KEY"]),
+    fastcron: channelConfigured("CRONJOB_FASTCRON_ENABLE", ["CRONJOB_FASTCRON_TOKEN"]),
+    qstash: channelConfigured("CRONJOB_QSTASH_ENABLE", ["CRONJOB_QSTASH_TOKEN"]),
+    webhook: channelConfigured("CRONJOB_WEBHOOK_ENABLE", ["CRONJOB_WEBHOOK_URL"]),
+  };
+}
+
 function githubUrl(ctx) {
   const owner = env("CRONJOB_OWNER", env("CRONJOB_ORG", ctx.owner));
   const repo = env("CRONJOB_REPO", ctx.repo);
@@ -433,9 +444,11 @@ showCronjobEnv();
 
 const ctx = workflowContext();
 const plan = nextRunPlan();
+const channels = channelPlan();
 const results = [];
 log("[plan]", {
   provider: ctx.provider,
+  channels,
   enabled: plan.enabled,
   currentRunStartedAt: plan.start.toISOString(),
   nextRunMinutes: plan.minutes,
@@ -463,6 +476,6 @@ if (ctx.provider !== "github" && !env("CRONJOB_OWNER")) {
 const configured = results.filter((r) => r.configured);
 const success = configured.filter((r) => r.ok).length;
 const failed = configured.filter((r) => r.ok === false).length;
-const report = { plan: { enabled: plan.enabled, currentRunStartedAt: plan.start.toISOString(), nextRunMinutes: plan.minutes, dispatchAllowedAt: plan.dispatchAt.toISOString(), now: plan.now.toISOString(), allowedNow: plan.allowed }, results, summary: { configured: configured.length, success, failed, skipped: results.length - configured.length } };
+const report = { plan: { provider: ctx.provider, channels, enabled: plan.enabled, currentRunStartedAt: plan.start.toISOString(), nextRunMinutes: plan.minutes, dispatchAllowedAt: plan.dispatchAt.toISOString(), now: plan.now.toISOString(), allowedNow: plan.allowed }, results, summary: { configured: configured.length, success, failed, skipped: results.length - configured.length } };
 writeReport(report);
 if (plan.enabled && plan.allowed && configured.length > 0 && success === 0) process.exitCode = 1;
