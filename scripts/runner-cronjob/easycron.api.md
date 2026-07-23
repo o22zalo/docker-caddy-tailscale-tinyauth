@@ -1,6 +1,6 @@
 # EasyCron API
 
-Updated: 2026-07-22
+Updated: 2026-07-23
 
 Links:
 - API docs: https://developer.easycron.com/docs/api
@@ -9,6 +9,15 @@ Links:
 
 Status in repo: implemented. `keepalive-dispatch.mjs` creates an EasyCron job
 when `CRONJOB_EASYCRON_ENABLE=true`.
+
+### One-shot mode (--mark-start)
+
+When called at `--mark-start`, the cron expression is pinned to the exact `nextRunAt` datetime:
+`{minute} {hour} {day} {month} *`
+
+Example — run at 2026-07-23 08:58 Asia/Bangkok: `58 8 23 7 *`
+
+EasyCron does not have a native one-shot/expires feature. The job will repeat on the same minute/hour next month unless manually deleted.
 
 ## Endpoint
 

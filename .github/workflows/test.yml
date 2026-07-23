@@ -88,9 +88,6 @@ jobs:
           node scripts/runner-tools/install-tool.mjs --all
           date -u '+P1 end %FT%T.%3NZ'
 
-      - name: P1 Mark workflow start
-        run: node scripts/runner-cronjob/keepalive-dispatch.mjs --mark-start
-
       # Save right after install so later smoke failures still warm the cache.
       - name: Save runner tools cache
         if: always() && steps.cache-runner-tools.outputs.cache-hit != 'true'
@@ -98,6 +95,17 @@ jobs:
         with:
           path: scripts/runner-tools/.cache
           key: ${{ steps.cache-runner-tools.outputs.cache-primary-key }}
+
+      - name: P1 Setup environment
+        env:
+          DOTENVRTDB_URL: ${{ secrets.DOTENVRTDB_URL }}
+        run: |
+          date -u '+P1 setup-env start %FT%T.%3NZ'
+          node scripts/runners/setup-env.mjs
+          date -u '+P1 setup-env end %FT%T.%3NZ'
+
+      - name: P1 Mark workflow start
+        run: node scripts/runner-cronjob/keepalive-dispatch.mjs --mark-start
 
       - name: P2 Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -122,14 +130,6 @@ jobs:
         env:
           GITHUB_SHA: ${{ github.sha }}
         run: node scripts/runners/verify-stack-images.mjs
-
-      - name: P3 Setup environment
-        env:
-          DOTENVRTDB_URL: ${{ secrets.DOTENVRTDB_URL }}
-        run: |
-          date -u '+P3 start %FT%T.%3NZ'
-          node scripts/runners/setup-env.mjs
-          date -u '+P3 end %FT%T.%3NZ'
 
       - name: P4 Setup Host
         run: |

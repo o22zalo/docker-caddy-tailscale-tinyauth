@@ -1,6 +1,6 @@
 # FastCron REST API
 
-Updated: 2026-07-22
+Updated: 2026-07-23
 
 Links:
 - API docs: https://www.fastcron.com/docs/api
@@ -8,6 +8,15 @@ Links:
 
 Status in repo: implemented. `keepalive-dispatch.mjs` creates a FastCron job
 when `CRONJOB_FASTCRON_ENABLE=true`.
+
+### One-shot mode (--mark-start)
+
+When called at `--mark-start`, the expression is pinned to the exact `nextRunAt` datetime:
+`{minute} {hour} {day} {month} *`
+
+Example — run at 2026-07-23 08:58 Asia/Bangkok: `58 8 23 7 *`
+
+FastCron does not have a native one-shot/expires feature. The job will repeat on the same minute/hour next month unless manually deleted.
 
 ## Endpoint
 
