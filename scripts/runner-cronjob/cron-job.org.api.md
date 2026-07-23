@@ -52,12 +52,14 @@ dispatch endpoint:
       "months": [-1],
       "wdays": [-1]
     },
-    "requestHeaders": [
-      { "name": "Authorization", "value": "Bearer <CRONJOB_DISPATCH_PAT>" },
-      { "name": "Accept", "value": "application/vnd.github+json" },
-      { "name": "Content-Type", "value": "application/json" }
-    ],
-    "requestBody": "{\"ref\":\"main\",\"inputs\":{\"run_group\":\"stack-test-main\"}}",
+    "extendedData": {
+      "headers": {
+        "Authorization": "Bearer <CRONJOB_DISPATCH_PAT>",
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json"
+      },
+      "body": "{\"ref\":\"main\",\"inputs\":{\"run_group\":\"stack-test-main\"}}"
+    },
     "notification": {
       "onFailure": true,
       "onFailureCount": 3,

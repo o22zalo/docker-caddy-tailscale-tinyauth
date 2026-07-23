@@ -400,12 +400,14 @@ async function ensureCronJobOrg(ctx, nextRunAt) {
       requestMethod: 1,
       redirectSuccess: true,
       schedule: scheduleField,
-      requestHeaders: [
-        { name: "Authorization", value: `Bearer ${pat}` },
-        { name: "Accept", value: "application/vnd.github+json" },
-        { name: "Content-Type", value: "application/json" },
-      ],
-      requestBody: JSON.stringify(dispatchBody(ctx)),
+      extendedData: {
+        headers: {
+          Authorization: `Bearer ${pat}`,
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(dispatchBody(ctx)),
+      },
       notification: {
         onFailure: true,
         onFailureCount: 3,
