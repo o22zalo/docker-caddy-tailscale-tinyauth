@@ -240,7 +240,7 @@ function getIndexedAzurePipelines(ctx) {
 function getAzurePipelines(ctx) {
   const indexed = getIndexedAzurePipelines(ctx);
   if (indexed.length > 0) return indexed;
-  const org = env("CRONJOB_AZURE_ORG") || (ctx.provider === "azure" ? ctx.owner : "") || "";
+  const org = env("CRONJOB_AZURE_ORG") || (ctx.provider === "azure" ? azureOrgFromEnv() : "") || "";
   const project = env("CRONJOB_AZURE_PROJECT") || (ctx.provider === "azure" ? ctx.project : "") || "";
   const pipelineId = env("CRONJOB_AZURE_PIPELINE_ID") || (ctx.provider === "azure" ? (process.env.SYSTEM_DEFINITIONID || "") : "") || "";
   const pat = env("CRONJOB_DISPATCH_PAT_AZURE") || env("CRONJOB_DISPATCH_PAT") || env("SYSTEM_ACCESSTOKEN") || env("AZURE_DEVOPS_PAT") || "";
@@ -429,6 +429,15 @@ function dispatchHeaders() {
 }
 
 /**
+ * Trích xuất organization từ SYSTEM_TEAMFOUNDATIONSERVERURI của Azure DevOps.
+ * URI format: https://dev.azure.com/{organization}/
+ */
+function azureOrgFromEnv() {
+  const uri = process.env.SYSTEM_TEAMFOUNDATIONSERVERURI || "";
+  return uri.match(/dev\.azure\.com\/([^/]+)/i)?.[1] || "";
+}
+
+/**
  * Cấu hình target cho external cron channels (GitHub API hoặc Azure DevOps API).
  * Detect dựa trên CRONJOB_AZURE_PIPELINE_ID: nếu có → Azure, không → GitHub.
  * Trả về { url, authValue, body, headers, pat } để mỗi channel dùng.
@@ -439,7 +448,7 @@ function externalTargetConfig(ctx) {
 
   // -- Azure target --
   if (azurePipelineId) {
-    const org = env("CRONJOB_AZURE_ORG") || (ctx.provider === "azure" ? ctx.owner : "") || "";
+    const org = env("CRONJOB_AZURE_ORG") || (ctx.provider === "azure" ? azureOrgFromEnv() : "") || "";
     const project = env("CRONJOB_AZURE_PROJECT") || (ctx.provider === "azure" ? ctx.project : "") || "";
     const pat = env("CRONJOB_DISPATCH_PAT_AZURE") || env("CRONJOB_DISPATCH_PAT") || env("SYSTEM_ACCESSTOKEN") || env("AZURE_DEVOPS_PAT") || "";
     const baseUrl = env("CRONJOB_AZURE_API", `https://dev.azure.com/${org}/${project}`);
