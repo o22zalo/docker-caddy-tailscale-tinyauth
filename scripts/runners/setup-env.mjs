@@ -25,6 +25,7 @@ const ROOT = resolve(__dirname, "../..");
 const ENV = resolve(ROOT, ".env");
 const ENV_CI = resolve(ROOT, ".env.ci");
 const GITHUB_STEP_SUMMARY = process.env.GITHUB_STEP_SUMMARY;
+const IS_AZURE = process.env.TF_BUILD === "True" || process.env.TF_BUILD === "true" || !!process.env.BUILD_BUILDID;
 const ENV_FILE = process.env.ENV_FILE || "";
 
 function appendEnv(key, val) {
@@ -201,4 +202,10 @@ if (envGet(ENV, "CONSUL_ENABLE") === "1" || envGet(ENV, "SSH_ENABLE") === "1") {
 // 5. Summary
 if (GITHUB_STEP_SUMMARY) {
   appendFileSync(GITHUB_STEP_SUMMARY, `## Environment\n\n- Mode: ${ENV_FILE && envGet(ENV, "CF_TUNNEL_TOKEN") ? "named" : "quick"}\n- Profiles: ${envGet(ENV, "COMPOSE_PROFILES")}\n\n`);
+}
+if (IS_AZURE) {
+  const mode = ENV_FILE && envGet(ENV, "CF_TUNNEL_TOKEN") ? "named" : "quick";
+  log(`[azure] Mode: ${mode}`);
+  log(`[azure] Profiles: ${envGet(ENV, "COMPOSE_PROFILES")}`);
+  console.log(`##vso[task.setvariable variable=MODE]${mode}`);
 }

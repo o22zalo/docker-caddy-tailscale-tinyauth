@@ -48,7 +48,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     if: |
-      (github.event_name == 'push' && github.repository == 'o861cloudflare/dockerstack-s3proxy') ||
+      (github.event_name == 'push' && github.repository == 'o861cloudflare/dockerstack-s3proxy-remove') ||
       (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
       github.event_name == 'workflow_dispatch'
     steps:

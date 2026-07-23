@@ -40,6 +40,28 @@ export function workflowContext(env = process.env) {
       apiBase: env.GITHUB_API_URL || "https://api.github.com",
     };
   }
+  if (provider === "azure") {
+    // Azure DevOps: BUILD_REPOSITORY_NAME = "owner/repo" or just "repo"
+    const repoName = String(env.BUILD_REPOSITORY_NAME || "");
+    const parts = repoName.split("/");
+    const owner = parts.length > 1 ? parts[0] : (env.BUILD_REPOSITORY_URI?.match(/\/([^/]+)\/([^/]+?)(?:\.git)?$/)?.[1] || "");
+    const repo = parts.length > 1 ? parts[1] : repoName;
+    const workflow = env.BUILD_DEFINITIONNAME || "azure-pipelines.yml";
+    const ref = (env.BUILD_SOURCEBRANCH || "").replace(/^refs\/heads\//, "") || "main";
+    const runGroup = env.CRONJOB_RUN_GROUP || `${workflow}-${ref}`;
+
+    return {
+      provider,
+      owner,
+      repo,
+      workflow,
+      ref,
+      runGroup,
+      apiBase: env.SYSTEM_TEAMFOUNDATIONSERVERURI || "https://dev.azure.com/",
+      buildId: env.BUILD_BUILDID,
+      project: env.SYSTEM_TEAMPROJECT,
+    };
+  }
   return { provider };
 }
 

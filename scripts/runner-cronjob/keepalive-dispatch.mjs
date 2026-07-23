@@ -257,7 +257,66 @@ function githubUrl(ctx) {
   return `${env("CRONJOB_GITHUB_API", ctx.apiBase)}/repos/${owner}/${repo}/actions/workflows/${workflow}/dispatches`;
 }
 
+async function azureJson(name, url, token, body) {
+  return httpJson(name, url, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${Buffer.from(`:${token}`).toString("base64")}`,
+      "Content-Type": "application/json",
+    },
+    body,
+  });
+}
+
+async function azureDispatch(ctx) {
+  const tz = env("CRONJOB_TZ", "Asia/Bangkok");
+  const formatter = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hour12: false });
+  const localHour = Number(formatter.format(new Date())) % 24;
+
+  const pat = env("CRONJOB_DISPATCH_PAT") || env("SYSTEM_ACCESSTOKEN") || env("AZURE_DEVOPS_PAT") || "";
+  if (!pat) {
+    return { ok: false, status: "error", error: "Missing Azure dispatch token (CRONJOB_DISPATCH_PAT / SYSTEM_ACCESSTOKEN / AZURE_DEVOPS_PAT)." };
+  }
+
+  const org = env("CRONJOB_AZURE_ORG", ctx.owner || "");
+  const project = env("CRONJOB_AZURE_PROJECT", ctx.project || "");
+  const pipelineId = env("CRONJOB_AZURE_PIPELINE_ID", "");
+  const hours = env("CRONJOB_HOURS");
+
+  if (!org || !project || !pipelineId) {
+    return { ok: false, status: "error", error: "Missing CRONJOB_AZURE_ORG, CRONJOB_AZURE_PROJECT, or CRONJOB_AZURE_PIPELINE_ID." };
+  }
+
+  const allowed = isHourAllowed(hours, localHour);
+  log(`[azure:dispatch] checking hours range [${hours || "any"}] vs current hour [${localHour}h]: ${allowed ? "ALLOWED" : "SKIPPED"}`);
+  if (!allowed) {
+    return { ok: null, status: "skipped", reason: `Hour ${localHour}h not in range ${hours}` };
+  }
+
+  const url = `${env("CRONJOB_AZURE_API", `https://dev.azure.com/${org}/${project}`)}/_apis/pipelines/${pipelineId}/runs?api-version=7.1`;
+  const body = {
+    resources: {},
+    variables: {
+      CRONJOB_NEXT_RUN_ENABLE: { value: String(boolDefaultTrue(env("CRONJOB_NEXT_RUN_ENABLE"))) },
+      CRONJOB_NEXT_RUN_MINUTES: { value: String(num(env("CRONJOB_NEXT_RUN_MINUTES"), config().next_run_minutes)) },
+      CRONJOB_RUN_GROUP: { value: env("CRONJOB_RUN_GROUP", ctx.runGroup) },
+    },
+  };
+
+  try {
+    const res = await azureJson(`azure:dispatch:${org}/${project}`, url, pat, body);
+    return { ok: res.ok, status: res.status, response: redact(res.text || "") };
+  } catch (e) {
+    log(`[azure:dispatch] error`, e.stack || e.message);
+    return { ok: false, status: "error", error: redact(e.message) };
+  }
+}
+
 async function selfDispatch(ctx) {
+  if (ctx.provider === "azure") {
+    return azureDispatch(ctx);
+  }
+
   const repos = getDispatchRepositories(ctx);
   const tz = env("CRONJOB_TZ", "Asia/Bangkok");
   const formatter = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hour12: false });
@@ -694,8 +753,8 @@ if (skippedChannels.length > 0) {
   log(`[self-dispatch] channels already ok at mark-start (will skip): ${skippedChannels.join(", ")}`);
 }
 
-if (ctx.provider !== "github" && !env("CRONJOB_OWNER")) {
-  log(`[provider] ${ctx.provider}; no CRONJOB_OWNER, skip.`);
+if (ctx.provider === "local") {
+  log(`[provider] local; skip dispatch.`);
 } else if (!plan.enabled) {
   log("[next-run] disabled by CRONJOB_NEXT_RUN_ENABLE.");
 } else if (!plan.allowed) {

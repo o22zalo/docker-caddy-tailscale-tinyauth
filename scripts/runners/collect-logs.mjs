@@ -16,6 +16,7 @@ const ROOT = resolve(__dirname, "../..");
 const LOG_DIR = resolve(ROOT, "ci-logs");
 const MODE = process.env.MODE || "unknown";
 const GITHUB_STEP_SUMMARY = process.env.GITHUB_STEP_SUMMARY;
+const IS_AZURE = process.env.TF_BUILD === "True" || process.env.TF_BUILD === "true" || !!process.env.BUILD_BUILDID;
 
 process.chdir(ROOT);
 
@@ -104,6 +105,14 @@ writeFileSync(`${LOG_DIR}/MANIFEST.txt`, manifest);
 if (GITHUB_STEP_SUMMARY) {
   const summary = `## Collected log files\n\n\`\`\`\n${files}\n\`\`\`\n`;
   execSync(`cat >> "${GITHUB_STEP_SUMMARY}"`, { input: summary });
+}
+
+if (IS_AZURE) {
+  // Azure Pipelines: upload ci-logs directory as attachment
+  try {
+    console.log(`##vso[task.uploadfile]${LOG_DIR}/MANIFEST.txt`);
+    log("Azure Pipelines: uploaded MANIFEST.txt");
+  } catch {}
 }
 
 console.log(`Collected ${services.length} service logs into ci-logs/`);

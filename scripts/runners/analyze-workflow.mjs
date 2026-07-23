@@ -23,6 +23,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
 const LOG_DIR = resolve(ROOT, "ci-logs");
 const GITHUB_STEP_SUMMARY = process.env.GITHUB_STEP_SUMMARY;
+const IS_AZURE = process.env.TF_BUILD === "True" || process.env.TF_BUILD === "true" || !!process.env.BUILD_BUILDID;
 const MODE = process.env.MODE || "unknown";
 
 process.chdir(ROOT);
@@ -436,6 +437,19 @@ if (GITHUB_STEP_SUMMARY) {
     log("Report written to GitHub Step Summary");
   } catch (e) {
     console.error("Failed to write to GITHUB_STEP_SUMMARY:", e.message);
+  }
+}
+
+// Write to Azure Pipelines log attachment if available
+if (IS_AZURE) {
+  try {
+    const reportFile = resolve(LOG_DIR, "workflow-analysis.md");
+    mkdirSync(LOG_DIR, { recursive: true });
+    writeFileSync(reportFile, report);
+    log(`Report written to ${reportFile} (Azure Pipelines)`);
+    console.log(`##vso[task.uploadfile]${reportFile}`);
+  } catch (e) {
+    console.error("Failed to write Azure analysis report:", e.message);
   }
 }
 
