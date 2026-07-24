@@ -901,6 +901,30 @@ async function markStart() {
   }
 
   const ctx = workflowContext();
+  const dispatchedBy = env("CRONJOB_DISPATCHED_BY") || "";
+  log("[mark-start] provider =", ctx.provider);
+  log("[mark-start] inputs: dispatched_by =", dispatchedBy || '""');
+
+  if (ctx.provider === "github") {
+    const eventPath = process.env.GITHUB_EVENT_PATH;
+    if (eventPath && existsSync(eventPath)) {
+      try {
+        const event = JSON.parse(readFileSync(eventPath, "utf8"));
+        log("[mark-start] github event inputs:", event.inputs || {});
+      } catch {}
+    }
+  } else if (ctx.provider === "azure") {
+    log("[mark-start] azure pipeline parameters:", {
+      CRONJOB_RUN_GROUP: env("CRONJOB_RUN_GROUP") || '""',
+      CRONJOB_NEXT_RUN_ENABLE: env("CRONJOB_NEXT_RUN_ENABLE") || '""',
+      CRONJOB_NEXT_RUN_MINUTES: env("CRONJOB_NEXT_RUN_MINUTES") || '""',
+      CRONJOB_DISPATCHED_BY: dispatchedBy || '""',
+      BUILD_BUILDID: process.env.BUILD_BUILDID || '""',
+      BUILD_SOURCEBRANCH: process.env.BUILD_SOURCEBRANCH || '""',
+      BUILD_REASON: process.env.BUILD_REASON || '""',
+    });
+  }
+
   const externalResults = [];
 
   if (!boolDefaultTrue(enabledRaw)) {
