@@ -263,8 +263,8 @@ function showCronjobEnv() {
     const rawVal = fileEnv[k] || process.env[k];
     if (rawVal === undefined) continue;
     const isSecret = /(TOKEN|SECRET|PASSWORD|PASS|AUTH|KEY|PAT|API)/i.test(k);
-    const masked = isSecret ? "*".repeat(Math.min(8, rawVal.length)) : rawVal;
-    log(`env:${k} = ${masked} (${rawVal.length} characters)`);
+    const display = rawVal.length === 0 ? `""` : isSecret ? "*".repeat(Math.min(8, rawVal.length)) : rawVal;
+    log(`env:${k} = ${display} (${rawVal.length} characters)`);
   }
   log("-------------------------------------");
 }
@@ -356,11 +356,24 @@ async function azureEnsureSettableVariables(pat, baseUrl, pipelineId, varNames) 
 }
 
 /**
- * Parse error message "Variable 'X' is not settable at queue time" → returns variable name.
+ * Parse error response (JSON body or string) for "not settable at queue time" → returns variable name.
+ * Handles both:
+ *   "Variable 'X' is not settable at queue time"
+ *   "You can't set the following variables (X)"
  */
-function parseNotSettableVariable(errorMessage) {
-  const match = errorMessage?.match(/variable\s+['"]?(\w+)['"]?\s+is\s+not\s+settable/i);
-  return match ? match[1] : null;
+function parseNotSettableVariable(rawBody) {
+  if (!rawBody) return null;
+  let msg = rawBody;
+  try { const j = JSON.parse(rawBody); if (j.message) msg = j.message; } catch {}
+  const patterns = [
+    /variable\s+['"]?(\w+)['"]?\s+is\s+not\s+settable/i,
+    /can't\s+set\s+the\s+following\s+variables?\s*\(([^)]+)\)/i,
+  ];
+  for (const re of patterns) {
+    const m = msg.match(re);
+    if (m) return m[1];
+  }
+  return null;
 }
 
 /**
@@ -436,6 +449,7 @@ async function azureDispatch(ctx, dispatchedBy = "") {
         CRONJOB_DISPATCHED_BY: { value: dispatchedBy },
       },
     };
+    log(`[azure:dispatch] ${label} CRONJOB_DISPATCHED_BY=${dispatchedBy || '""'}`, body);
 
     try {
       const res = await azureDispatchWithRetry(label, url, p.pat, body, varNames);
@@ -946,6 +960,8 @@ const ctx = workflowContext();
 const plan = nextRunPlan();
 const channels = channelPlan();
 const results = [];
+const dispatchedByVal = "self-dispatch:github";
+const planDispatchBody = dispatchBody(ctx, dispatchedByVal);
 log("[plan]", {
   provider: ctx.provider,
   channels,
@@ -956,7 +972,8 @@ log("[plan]", {
   now: plan.now.toISOString(),
   allowedNow: plan.allowed,
   dryRun: DRY_RUN,
-  dispatchBody: dispatchBody(ctx, "self-dispatch:github"),
+  dispatched_by: dispatchedByVal,
+  dispatchBody: planDispatchBody,
 });
 
 // Đọc channels đã ok ở --mark-start để skip
